@@ -12,6 +12,28 @@ static int fail(const wchar_t *message) {
     return 1;
 }
 
+static DWORD WINAPI recover_startup(LPVOID argument) {
+    HANDLE ready = (HANDLE)argument;
+    if (WaitForSingleObject(ready, 12000) != WAIT_TIMEOUT) return 0;
+
+    wchar_t command[65536];
+    if (swprintf(command, ARRAYSIZE(command), L"\"%ls\" \"%ls\" --safe-start", python, script) < 0)
+        return 0;
+    SetEnvironmentVariableW(L"SONORA_STARTUP_EVENT", NULL);
+    SetEnvironmentVariableW(L"__PYVENV_LAUNCHER__", NULL);
+
+    STARTUPINFOW startup = {0};
+    startup.cb = sizeof(startup);
+    PROCESS_INFORMATION process = {0};
+    if (CreateProcessW(python, command, NULL, NULL, FALSE, 0, NULL, root, &startup, &process)) {
+        CloseHandle(process.hThread);
+        CloseHandle(process.hProcess);
+        // Windows releases the instance lock for the recovery process.
+        TerminateProcess(GetCurrentProcess(), 0);
+    }
+    return 0;
+}
+
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE previous, PWSTR command_line, int show) {
     (void)instance; (void)previous; (void)command_line; (void)show;
     DWORD length = GetModuleFileNameW(NULL, root, ARRAYSIZE(root));
@@ -49,7 +71,21 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE previous, PWSTR command_line, 
     // resolve to the prepared environment, while this EXE owns the window.
     SetEnvironmentVariableW(L"__PYVENV_LAUNCHER__", python);
     wchar_t *arguments[] = {python, script, NULL};
+    HANDLE ready = CreateEventW(NULL, TRUE, FALSE, NULL);
+    HANDLE watchdog = NULL;
+    if (ready) {
+        wchar_t value[32];
+        swprintf(value, ARRAYSIZE(value), L"%llu", (unsigned long long)(ULONG_PTR)ready);
+        SetEnvironmentVariableW(L"SONORA_STARTUP_EVENT", value);
+        watchdog = CreateThread(NULL, 0, recover_startup, ready, 0, NULL);
+    }
     int result = python_main(2, arguments);
+    if (ready) SetEvent(ready);
+    if (watchdog) {
+        WaitForSingleObject(watchdog, INFINITE);
+        CloseHandle(watchdog);
+    }
+    if (ready) CloseHandle(ready);
     if (result != 0)
         return fail(L"O Sonora não conseguiu iniciar. Abra Abrir_Sonora.cmd para verificar a instalação.");
     return 0;

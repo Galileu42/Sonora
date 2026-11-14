@@ -7,6 +7,7 @@ import os
 import re
 import subprocess
 import traceback
+import time
 import sys
 import tkinter as tk
 from tkinter import filedialog, font as tkfont, messagebox, ttk
@@ -25,6 +26,7 @@ ACCENT = "#a9caff"
 BLUE = "#275ed6"
 ASSETS = media.ROOT / "assets"
 APP_ID = "Sonora.Windows.Desktop"
+SAFE_START = "--safe-start" in sys.argv
 FONT = "Segoe UI" if os.name == "nt" else "DejaVu Sans"
 DEFAULT_FOLDER = str(Path.home() / "Downloads" / "Sonora")
 
@@ -83,7 +85,7 @@ class Sonora:
                            f"{max(height, min(round(730 * scale), self.root.winfo_screenheight() - 110))}")
         self.window_icon = tk.PhotoImage(file=ASSETS / "sonora.png")
         self.root.iconphoto(True, self.window_icon)
-        if os.name == "nt":
+        if os.name == "nt" and not SAFE_START:
             self.root.iconbitmap(str(ASSETS / "sonora.ico"))
             self.root.bind("<Map>", self.on_window_map, add="+")
         self.root.configure(bg=BG)
@@ -120,8 +122,9 @@ class Sonora:
         self.update_options()
         self.refresh()
         self.root.after(70, self.poll)
-        self.root.after(1500, self.check_updates)
+        self.root.after(5000 if SAFE_START else 1500, self.check_updates)
         self.root.after(200, self.report_update_error)
+        self.root.after(80, signal_startup_ready)
 
     def on_window_map(self, event):
         if event.widget is self.root:
@@ -168,7 +171,8 @@ class Sonora:
         style.configure("Vertical.TScrollbar", background="#414d62", troughcolor=BG,
                         bordercolor=BG, lightcolor="#414d62", darkcolor="#414d62", borderwidth=0, width=9)
         style.map("Vertical.TScrollbar", background=[("active", "#536682")])
-        self.rounded_styles(style)
+        if not SAFE_START:
+            self.rounded_styles(style)
 
     def surface(self, fill, radius, outline=None, chevron=False):
         """Draw a transparent, antialiased surface for Tk's stretchable elements."""
@@ -979,6 +983,13 @@ class Sonora:
             Thread(target=self.lookup.stop, daemon=True).start()
 
 
+def signal_startup_ready():
+    handle = os.environ.pop("SONORA_STARTUP_EVENT", None)
+    if os.name == "nt" and handle:
+        import ctypes
+        ctypes.windll.kernel32.SetEvent(ctypes.c_void_p(int(handle)))
+
+
 def main():
     if os.name == "nt":
         import ctypes
@@ -988,12 +999,21 @@ def main():
         try:
             if os.name == "nt":
                 import msvcrt
-                instance.seek(0)
-                msvcrt.locking(instance.fileno(), msvcrt.LK_NBLCK, 1)
+                attempts = 20 if SAFE_START else 1
+                for attempt in range(attempts):
+                    instance.seek(0)
+                    try:
+                        msvcrt.locking(instance.fileno(), msvcrt.LK_NBLCK, 1)
+                        break
+                    except OSError:
+                        if attempt + 1 == attempts:
+                            raise
+                        time.sleep(0.15)
             else:
                 import fcntl
                 fcntl.flock(instance, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:
+            signal_startup_ready()
             window = tk.Tk()
             window.withdraw()
             messagebox.showinfo("Sonora", "O Sonora já está aberto.", parent=window)
@@ -1014,6 +1034,7 @@ def run_interface():
         Sonora(window)
     except Exception:
         report_error(*sys.exc_info())
+        signal_startup_ready()
         window.withdraw()
         messagebox.showerror("Sonora", f"Falha ao abrir o aplicativo. Consulte o diagnóstico em:\n{log_path}",
                              parent=window)
