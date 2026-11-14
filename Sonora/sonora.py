@@ -8,7 +8,7 @@ import re
 import subprocess
 import sys
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, font as tkfont, messagebox, ttk
 
 import engine as media
 import updater
@@ -73,12 +73,13 @@ class Sonora:
     def __init__(self, root):
         self.root = root
         self.root.title("Sonora")
-        scale = max(1, self.root.winfo_fpixels("1i") / 96)
+        self.scale = max(1, self.root.winfo_fpixels("1i") / 96)
+        scale = self.scale
         width = min(round(890 * scale), self.root.winfo_screenwidth() - 35)
         height = min(round(655 * scale), self.root.winfo_screenheight() - 110)
         self.root.minsize(width, height)
-        self.root.geometry(f"{max(width, min(1130, self.root.winfo_screenwidth() - 35))}x"
-                           f"{max(height, min(730, self.root.winfo_screenheight() - 110))}")
+        self.root.geometry(f"{max(width, min(round(1130 * scale), self.root.winfo_screenwidth() - 35))}x"
+                           f"{max(height, min(round(730 * scale), self.root.winfo_screenheight() - 110))}")
         self.window_icon = tk.PhotoImage(file=ASSETS / "sonora.png")
         self.root.iconphoto(True, self.window_icon)
         if os.name == "nt":
@@ -128,6 +129,9 @@ class Sonora:
     def style(self):
         style = ttk.Style(self.root)
         style.theme_use("clam")
+        for name in ("TkDefaultFont", "TkTextFont", "TkHeadingFont", "TkMenuFont"):
+            tkfont.nametofont(name, self.root).configure(family=FONT, size=11)
+        self.root.option_add("*TCombobox*Listbox.font", "TkTextFont")
         style.configure(".", background=BG, foreground=INK, font=(FONT, 11))
         style.configure("TButton", padding=(12, 7), background=FIELD, borderwidth=0,
                         focuscolor=ACCENT, focusthickness=1)
@@ -173,7 +177,7 @@ class Sonora:
         toolbar.pack(fill="x")
         self.brand = tk.PhotoImage(file=ASSETS / "marca.png")
         tk.Label(toolbar, image=self.brand, bg=PANEL).pack(side="left", padx=(0, 11))
-        tk.Label(toolbar, text="Sonora", bg=PANEL, fg=INK, font=(FONT, 19, "bold")).pack(side="left")
+        tk.Label(toolbar, text="Sonora", bg=PANEL, fg=INK, font=(FONT, 20, "bold")).pack(side="left")
         self.update_button = ttk.Button(toolbar, text="Atualizações", command=self.update_dialog)
         self.update_button.pack(side="right")
         ttk.Button(toolbar, text="Abrir pasta", command=self.open_folder).pack(side="right", padx=8)
@@ -231,7 +235,7 @@ class Sonora:
         header.pack(fill="x", pady=(0, 7))
         self.label(header, "Adicionar links", heading=True).pack(anchor="w")
         self.label(header, "YouTube, Shorts ou playlists. Cole um link por linha.").pack(anchor="w", pady=(3, 0))
-        self.links = tk.Text(links, height=3, width=1, wrap="word", font=(FONT, 10), bg=BG, fg=INK,
+        self.links = tk.Text(links, height=3, width=1, wrap="word", font="TkTextFont", bg=BG, fg=INK,
                              insertbackground=INK, highlightthickness=1, highlightcolor=ACCENT,
                              highlightbackground=BORDER, relief="flat", padx=9, pady=7, undo=True)
         self.links.pack(fill="x")
@@ -249,7 +253,9 @@ class Sonora:
         header.pack(fill="x", pady=(0, 9))
         self.label(header, "Fila de downloads", heading=True).pack(side="left")
         self.counts = tk.StringVar()
-        self.label(header, "", self.counts).pack(side="left", padx=(10, 0))
+        count = self.label(header, "", self.counts)
+        count.pack(side="left", padx=(10, 0))
+        header.bind("<Configure>", lambda event: self.fit_queue_header(event, count))
         self.start_button = ttk.Button(header, text="Iniciar fila", style="Primary.TButton", command=self.toggle)
         self.start_button.pack(side="right")
 
@@ -297,6 +303,12 @@ class Sonora:
         self.root.bind("<Control-Return>", lambda _: self.enqueue())
         self.root.bind("<Control-l>", lambda _: self.links.focus_set())
         self.root.bind("<Control-L>", lambda _: self.links.focus_set())
+
+    def fit_queue_header(self, event, count):
+        if event.width < round(545 * self.scale):
+            count.pack_forget()
+        elif not count.winfo_manager():
+            count.pack(side="left", padx=(10, 0))
 
     def select_mode(self, mode):
         self.mode.set(mode)
