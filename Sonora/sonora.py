@@ -6,6 +6,7 @@ from threading import Thread
 import os
 import re
 import subprocess
+import traceback
 import sys
 import tkinter as tk
 from tkinter import filedialog, font as tkfont, messagebox, ttk
@@ -67,52 +68,6 @@ def set_windows_frame(window):
     dwm.argtypes = (wt.HWND, wt.DWORD, ct.c_void_p, wt.DWORD)
     if dwm(frame, 20, ct.byref(dark), ct.sizeof(dark)) != 0:
         dwm(frame, 19, ct.byref(dark), ct.sizeof(dark))
-
-
-def load_rounded_font(directory):
-    """Load the fonts carried by Sonora.exe for this process only."""
-    import ctypes as ct
-    from ctypes import wintypes as wt
-
-    kernel = ct.windll.kernel32
-    kernel.FindResourceW.argtypes = (wt.HMODULE, ct.c_void_p, ct.c_void_p)
-    kernel.FindResourceW.restype = wt.HANDLE
-    kernel.LoadResource.argtypes = (wt.HMODULE, wt.HANDLE)
-    kernel.LoadResource.restype = wt.HANDLE
-    kernel.SizeofResource.argtypes = (wt.HMODULE, wt.HANDLE)
-    kernel.SizeofResource.restype = wt.DWORD
-    kernel.LockResource.argtypes = (wt.HANDLE,)
-    kernel.LockResource.restype = ct.c_void_p
-    add = ct.windll.gdi32.AddFontResourceExW
-    add.argtypes = (wt.LPCWSTR, wt.DWORD, ct.c_void_p)
-    remove = ct.windll.gdi32.RemoveFontResourceExW
-    remove.argtypes = (wt.LPCWSTR, wt.DWORD, ct.c_void_p)
-    registered = []
-
-    def release():
-        for path in registered:
-            remove(str(path), 0x10, None)  # FR_PRIVATE
-
-    try:
-        for resource_id in (301, 302):
-            resource = kernel.FindResourceW(None, resource_id, 10)  # RT_RCDATA
-            if not resource:
-                break
-            size = kernel.SizeofResource(None, resource)
-            data = kernel.LockResource(kernel.LoadResource(None, resource))
-            if not data or not size:
-                break
-            path = directory / f"Sonora-{resource_id}.ttf"
-            path.write_bytes(ct.string_at(data, size))
-            if not add(str(path), 0x10, None):
-                break
-            registered.append(path)
-        if len(registered) == 2:
-            return release
-    except OSError:
-        pass
-    release()
-    return None
 
 
 class Sonora:
@@ -406,9 +361,7 @@ class Sonora:
         header.pack(fill="x", pady=(0, 9))
         self.label(header, "Fila de downloads", heading=True).pack(side="left")
         self.counts = tk.StringVar()
-        count = self.label(header, "", self.counts)
-        count.pack(side="left", padx=(10, 0))
-        header.bind("<Configure>", lambda event: self.fit_queue_header(event, count))
+        self.label(header, "", self.counts).pack(side="left", padx=(10, 0))
         self.start_button = ttk.Button(header, text="Iniciar fila", style="Primary.TButton", command=self.toggle)
         self.start_button.pack(side="right")
 
@@ -456,12 +409,6 @@ class Sonora:
         self.root.bind("<Control-Return>", lambda _: self.enqueue())
         self.root.bind("<Control-l>", lambda _: self.links.focus_set())
         self.root.bind("<Control-L>", lambda _: self.links.focus_set())
-
-    def fit_queue_header(self, event, count):
-        if event.width < round(545 * self.scale):
-            count.pack_forget()
-        elif not count.winfo_manager():
-            count.pack(side="left", padx=(10, 0))
 
     def select_mode(self, mode):
         self.mode.set(mode)
@@ -675,7 +622,7 @@ class Sonora:
             self.empty.place(relx=0.5, rely=0.56, anchor="center")
         pending = sum(job.status == media.PENDING for job in self.jobs)
         done = sum(job.status == media.DONE for job in self.jobs)
-        self.counts.set(f"{pending} na fila  ·  {done} concluídos")
+        self.counts.set(f"{pending} pend.  ·  {done} prontos")
         self.update_controls()
 
     def update_controls(self):
@@ -918,7 +865,8 @@ class Sonora:
         self.show_error("Atualizações do Sonora", error, hint="Confira as permissões da pasta do Sonora e tente novamente.")
 
     def poll(self):
-        while True:
+        # Yield to Tk even when a large playlist or download keeps producing events.
+        for _ in range(50):
             try:
                 event, data = self.events.get_nowait()
             except Empty:
@@ -958,7 +906,7 @@ class Sonora:
                     continue
                 stage, percent, details = data
                 self.percent.set(percent)
-                if stage == "Preparando" and details:
+                if stage == "Preparando" and details and job.title != details:
                     job.title = details
                     self.refresh()
                 baseline = job.title or job.url
@@ -1054,20 +1002,24 @@ def main():
 
 
 def run_interface():
-    global FONT
-    from tempfile import TemporaryDirectory
+    window = tk.Tk()
+    log_path = media.DATA / "erro-sonora.log"
 
-    with TemporaryDirectory(prefix="sonora-fonts-") as directory:
-        release = load_rounded_font(Path(directory)) if os.name == "nt" else None
-        window = tk.Tk()
-        try:
-            if "nunito" in {family.casefold() for family in tkfont.families(window)}:
-                FONT = "Nunito"
-            Sonora(window)
-            window.mainloop()
-        finally:
-            if release:
-                release()
+    def report_error(error_type, error, stack):
+        with log_path.open("a", encoding="utf-8") as log:
+            traceback.print_exception(error_type, error, stack, file=log)
+
+    window.report_callback_exception = report_error
+    try:
+        Sonora(window)
+    except Exception:
+        report_error(*sys.exc_info())
+        window.withdraw()
+        messagebox.showerror("Sonora", f"Falha ao abrir o aplicativo. Consulte o diagnóstico em:\n{log_path}",
+                             parent=window)
+        window.destroy()
+        return
+    window.mainloop()
 
 
 if __name__ == "__main__":

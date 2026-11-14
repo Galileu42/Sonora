@@ -93,7 +93,3 @@ https://github.com/yt-dlp/yt-dlp
 https://github.com/yt-dlp/yt-dlp/wiki/EJS
 https://www.gyan.dev/ffmpeg/builds/
 https://github.com/denoland/deno
-
-TIPOGRAFIA
-Nunito, © 2014 The Nunito Project Authors, sob a SIL Open Font
-License 1.1. A licença acompanha o executável e o código-fonte.
