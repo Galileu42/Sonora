@@ -2,8 +2,8 @@
 201 RCDATA "install.ps1"
 202 RCDATA "setup_payload.zip"
 1 VERSIONINFO
-FILEVERSION 1,5,0,0
-PRODUCTVERSION 1,5,0,0
+FILEVERSION 1,6,0,0
+PRODUCTVERSION 1,6,0,0
 FILEOS 0x40004
 FILETYPE 1
 BEGIN
@@ -14,7 +14,7 @@ BEGIN
             VALUE "FileDescription", "Instalador do Sonora"
             VALUE "OriginalFilename", "Sonora_Setup.exe"
             VALUE "ProductName", "Sonora"
-            VALUE "ProductVersion", "1.5.0"
+            VALUE "ProductVersion", "1.6.0"
         END
     END
     BLOCK "VarFileInfo"

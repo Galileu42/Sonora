@@ -14,14 +14,14 @@ import engine as media
 import updater
 
 
-BG = "#18191b"
-PANEL = "#222326"
-FIELD = "#2c2e32"
-BORDER = "#36383d"
-INK = "#f4f4f6"
-MUTED = "#b4b6be"
-ACCENT = "#a9c6ff"
-BLUE = "#2e68e8"
+BG = "#111318"
+PANEL = "#1a1e26"
+FIELD = "#252b36"
+BORDER = "#313847"
+INK = "#f2f5fc"
+MUTED = "#b4bfce"
+ACCENT = "#a9caff"
+BLUE = "#275ed6"
 ASSETS = media.ROOT / "assets"
 APP_ID = "Sonora.Windows.Desktop"
 FONT = "Segoe UI" if os.name == "nt" else "DejaVu Sans"
@@ -35,10 +35,44 @@ def open_path(path):
         subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", str(path)])
 
 
+def set_windows_frame(window):
+    """Apply branding to Tk's outer Win32 window, which owns the title bar."""
+    if os.name != "nt":
+        return
+    import ctypes as ct
+    from ctypes import wintypes as wt
+
+    user = ct.windll.user32
+    user.GetAncestor.argtypes = (wt.HWND, wt.UINT)
+    user.GetAncestor.restype = wt.HWND
+    user.LoadImageW.argtypes = (wt.HINSTANCE, wt.LPCWSTR, wt.UINT, ct.c_int, ct.c_int, wt.UINT)
+    user.LoadImageW.restype = wt.HANDLE
+    user.SendMessageW.argtypes = (wt.HWND, wt.UINT, wt.WPARAM, wt.LPARAM)
+    user.SendMessageW.restype = wt.LPARAM
+    frame = user.GetAncestor(window.winfo_id(), 2)  # GA_ROOT
+    if not frame:
+        return
+    if not hasattr(window, "_sonora_icons"):
+        window._sonora_icons = []
+        for kind, x, y in ((0, 49, 50), (1, 11, 12)):  # ICON_SMALL, ICON_BIG
+            icon = user.LoadImageW(None, str(ASSETS / "sonora.ico"), 1,
+                                   user.GetSystemMetrics(x), user.GetSystemMetrics(y), 0x10)
+            if icon:
+                window._sonora_icons.append((kind, icon))
+    for kind, icon in window._sonora_icons:
+        user.SendMessageW(frame, 0x0080, kind, icon)  # WM_SETICON
+
+    dark = ct.c_int(1)
+    dwm = ct.windll.dwmapi.DwmSetWindowAttribute
+    dwm.argtypes = (wt.HWND, wt.DWORD, ct.c_void_p, wt.DWORD)
+    if dwm(frame, 20, ct.byref(dark), ct.sizeof(dark)) != 0:
+        dwm(frame, 19, ct.byref(dark), ct.sizeof(dark))
+
+
 class Sonora:
     def __init__(self, root):
         self.root = root
-        self.root.title("Sonora — Downloads do YouTube")
+        self.root.title("Sonora")
         scale = max(1, self.root.winfo_fpixels("1i") / 96)
         width = min(round(890 * scale), self.root.winfo_screenwidth() - 35)
         height = min(round(655 * scale), self.root.winfo_screenheight() - 110)
@@ -48,7 +82,8 @@ class Sonora:
         self.window_icon = tk.PhotoImage(file=ASSETS / "sonora.png")
         self.root.iconphoto(True, self.window_icon)
         if os.name == "nt":
-            self.root.iconbitmap(default=str(ASSETS / "sonora.ico"))
+            self.root.iconbitmap(str(ASSETS / "sonora.ico"))
+            self.root.bind("<Map>", self.on_window_map, add="+")
         self.root.configure(bg=BG)
         self.root.protocol("WM_DELETE_WINDOW", self.close)
         self.events = Queue()
@@ -84,20 +119,24 @@ class Sonora:
         self.root.after(1500, self.check_updates)
         self.root.after(200, self.report_update_error)
 
+    def on_window_map(self, event):
+        if event.widget is self.root:
+            self.root.after_idle(lambda: set_windows_frame(self.root))
+
     def style(self):
         style = ttk.Style(self.root)
         style.theme_use("clam")
-        style.configure(".", background=BG, foreground=INK, font=(FONT, 10))
+        style.configure(".", background=BG, foreground=INK, font=(FONT, 11))
         style.configure("TButton", padding=(12, 7), background=FIELD, borderwidth=0,
                         focuscolor=ACCENT, focusthickness=1)
-        style.map("TButton", background=[("active", "#3b3d43")], foreground=[("disabled", "#858892")])
+        style.map("TButton", background=[("active", "#353e4e")], foreground=[("disabled", "#9aa6b9")])
         style.configure("Primary.TButton", background=BLUE, foreground="#ffffff", font=(FONT, 10, "bold"))
-        style.map("Primary.TButton", background=[("disabled", FIELD), ("active", "#3e78fa")])
-        style.configure("Selected.TButton", background="#314973", foreground="#edf3ff",
+        style.map("Primary.TButton", background=[("disabled", FIELD), ("active", "#326bec")])
+        style.configure("Selected.TButton", background="#294878", foreground="#edf3ff",
                         font=(FONT, 10, "bold"))
         style.map("Selected.TButton", background=[("active", "#3c5787")])
         style.configure("Queue.TButton", padding=(9, 4), background=PANEL, foreground=MUTED)
-        style.configure("QueueSelected.TButton", padding=(9, 4), background=FIELD, foreground=ACCENT)
+        style.configure("QueueSelected.TButton", padding=(9, 4), background="#293a54", foreground=ACCENT)
         style.map("Queue.TButton", background=[("active", FIELD)])
         style.configure("TCheckbutton", background=PANEL, indicatorbackground=FIELD, padding=(0, 3))
         style.map("TCheckbutton", indicatorcolor=[("selected", ACCENT)], background=[("active", PANEL)])
@@ -113,20 +152,26 @@ class Sonora:
         self.root.option_add("*TCombobox*Listbox.selectForeground", INK)
         style.layout("Treeview", [("Treeview.treearea", {"sticky": "nswe"})])
         style.configure("Treeview", background=BG, fieldbackground=BG, foreground=INK,
-                        borderwidth=0, rowheight=max(31, round(self.root.winfo_fpixels("0.33i"))))
+                        borderwidth=0, rowheight=max(36, round(self.root.winfo_fpixels("0.37i"))))
         style.configure("Treeview.Heading", background=FIELD, foreground=MUTED, relief="flat",
-                        padding=(8, 7), font=(FONT, 9, "bold"))
+                        padding=(10, 8), font=(FONT, 10, "bold"))
         style.map("Treeview", background=[("selected", "#304672")], foreground=[("selected", INK)])
-        style.configure("Vertical.TScrollbar", background=FIELD, troughcolor=PANEL, arrowcolor=MUTED, borderwidth=0)
+        style.layout("Vertical.TScrollbar", [
+            ("Vertical.Scrollbar.trough", {"sticky": "ns", "children": [
+                ("Vertical.Scrollbar.thumb", {"expand": 1, "sticky": "nswe"}),
+            ]}),
+        ])
+        style.configure("Vertical.TScrollbar", background="#414d62", troughcolor=BG,
+                        bordercolor=BG, lightcolor="#414d62", darkcolor="#414d62", borderwidth=0, width=9)
+        style.map("Vertical.TScrollbar", background=[("active", "#536682")])
         style.configure("Horizontal.TProgressbar", background=ACCENT, troughcolor=FIELD, borderwidth=0)
 
     def build(self):
-        toolbar = tk.Frame(self.root, bg=PANEL, padx=18, pady=10)
+        toolbar = tk.Frame(self.root, bg=PANEL, padx=22, pady=11)
         toolbar.pack(fill="x")
         self.brand = tk.PhotoImage(file=ASSETS / "marca.png")
         tk.Label(toolbar, image=self.brand, bg=PANEL).pack(side="left", padx=(0, 11))
         tk.Label(toolbar, text="Sonora", bg=PANEL, fg=INK, font=(FONT, 19, "bold")).pack(side="left")
-        tk.Label(toolbar, text="Downloads", bg=PANEL, fg=MUTED, font=(FONT, 10)).pack(side="left", padx=20)
         self.update_button = ttk.Button(toolbar, text="Atualizações", command=self.update_dialog)
         self.update_button.pack(side="right")
         ttk.Button(toolbar, text="Abrir pasta", command=self.open_folder).pack(side="right", padx=8)
@@ -144,13 +189,13 @@ class Sonora:
         )
         self.percent.trace_add("write", lambda *_: self.progress_label.set(f"{self.percent.get():.0f}%"))
 
-        workspace = tk.Frame(self.root, bg=BG, padx=13, pady=12)
+        workspace = tk.Frame(self.root, bg=BG, padx=16, pady=15)
         workspace.pack(fill="both", expand=True)
         sidebar = self.card(workspace)
-        sidebar.pack(side="right", fill="y", padx=(9, 0))
-        sidebar.configure(width=255)
+        sidebar.pack(side="right", fill="y", padx=(12, 0))
+        sidebar.configure(width=max(246, round(self.root.winfo_fpixels("2.54i"))))
         sidebar.pack_propagate(False)
-        self.label(sidebar, "Saída", heading=True).pack(anchor="w", pady=(0, 14))
+        self.label(sidebar, "Configurações de saída", heading=True).pack(anchor="w", pady=(0, 15))
         self.label(sidebar, "Tipo de mídia").pack(anchor="w")
         modes = tk.Frame(sidebar, bg=PANEL)
         modes.pack(fill="x", pady=(5, 13))
@@ -168,22 +213,22 @@ class Sonora:
         self.quality_box = ttk.Combobox(sidebar, state="readonly", width=15)
         self.quality_box.pack(fill="x", pady=(5, 5))
         self.quality_box.bind("<<ComboboxSelected>>", self.set_quality)
-        note = self.label(sidebar, "", self.summary)
-        note.configure(wraplength=216, justify="left", anchor="w", height=2)
-        note.pack(fill="x")
+        note = tk.Label(sidebar, textvariable=self.summary, bg=FIELD, fg=ACCENT,
+                        font=(FONT, 10), wraplength=195, justify="left", anchor="w", height=2, padx=8)
+        note.pack(fill="x", pady=(3, 0))
         tk.Frame(sidebar, bg=BORDER, height=1).pack(fill="x", pady=(13, 12))
         self.label(sidebar, "Pasta de destino").pack(anchor="w")
         ttk.Entry(sidebar, textvariable=self.folder, width=16).pack(fill="x", pady=(5, 7))
-        ttk.Button(sidebar, text="Alterar pasta…", command=self.choose_folder).pack(anchor="w")
+        ttk.Button(sidebar, text="Alterar pasta", command=self.choose_folder).pack(anchor="w")
 
         work = tk.Frame(workspace, bg=BG)
         work.pack(side="left", fill="both", expand=True)
         links = self.card(work)
-        links.pack(fill="x", pady=(0, 9))
+        links.pack(fill="x", pady=(0, 12))
         header = tk.Frame(links, bg=PANEL)
         header.pack(fill="x", pady=(0, 7))
-        self.label(header, "Origem", heading=True).pack(side="left")
-        self.label(header, "Links do YouTube · um por linha").pack(side="left", padx=12)
+        self.label(header, "Adicionar links", heading=True).pack(anchor="w")
+        self.label(header, "YouTube, Shorts ou playlists. Cole um link por linha.").pack(anchor="w", pady=(3, 0))
         self.links = tk.Text(links, height=3, width=1, wrap="word", font=(FONT, 10), bg=BG, fg=INK,
                              insertbackground=INK, highlightthickness=1, highlightcolor=ACCENT,
                              highlightbackground=BORDER, relief="flat", padx=9, pady=7, undo=True)
@@ -238,16 +283,18 @@ class Sonora:
         self.tree.bind("<<TreeviewSelect>>", lambda _: self.update_controls())
         self.empty = tk.Frame(table, bg=BG)
         self.empty_title = tk.StringVar()
-        tk.Label(self.empty, textvariable=self.empty_title, bg=BG, fg=INK, font=(FONT, 13, "bold")).pack()
+        tk.Label(self.empty, textvariable=self.empty_title, bg=BG, fg=INK, font=(FONT, 15, "bold")).pack()
         self.empty_hint = tk.StringVar()
         tk.Label(self.empty, textvariable=self.empty_hint, bg=BG, fg=MUTED,
                  font=(FONT, 10)).pack(pady=(5, 0))
-        self.tree.tag_configure("even", background="#1e1f22")
+        self.tree.tag_configure("even", background="#191e28")
+        self.tree.tag_configure(media.ACTIVE, foreground=ACCENT)
         self.tree.tag_configure(media.DONE, foreground="#a9e7cc")
         self.tree.tag_configure(media.FAILED, foreground="#ffc5c2")
         self.tree.tag_configure(media.STOPPED, foreground=MUTED)
         self.root.bind("<Control-Return>", lambda _: self.enqueue())
-        self.links.focus_set()
+        self.root.bind("<Control-l>", lambda _: self.links.focus_set())
+        self.root.bind("<Control-L>", lambda _: self.links.focus_set())
 
     def select_mode(self, mode):
         self.mode.set(mode)
@@ -260,7 +307,7 @@ class Sonora:
     @staticmethod
     def label(parent, text, variable=None, heading=False):
         return tk.Label(parent, text=text, textvariable=variable, bg=PANEL,
-                        fg=INK if heading else MUTED, font=(FONT, 13, "bold") if heading else (FONT, 9))
+                        fg=INK if heading else MUTED, font=(FONT, 14, "bold") if heading else (FONT, 10))
 
     @staticmethod
     def make_table(parent, columns, stretch):
@@ -270,7 +317,7 @@ class Sonora:
             tree.column(key, minwidth=45, width=width, stretch=key == stretch)
         bar = ttk.Scrollbar(parent, command=tree.yview)
         tree.configure(yscrollcommand=bar.set)
-        bar.pack(side="right", fill="y")
+        bar.pack(side="right", fill="y", padx=(2, 0))
         tree.pack(fill="both", expand=True)
         return tree
 
@@ -457,7 +504,7 @@ class Sonora:
             self.empty.place_forget()
         else:
             self.empty_title.set("A fila está vazia" if self.queue_filter == "Todos" else "Nenhum item nesta lista")
-            self.empty_hint.set("Cole um link em Origem para começar." if self.queue_filter == "Todos" else "")
+            self.empty_hint.set("Cole um link do YouTube para começar." if self.queue_filter == "Todos" else "")
             self.empty.place(relx=0.5, rely=0.56, anchor="center")
         pending = sum(job.status == media.PENDING for job in self.jobs)
         done = sum(job.status == media.DONE for job in self.jobs)
@@ -588,7 +635,7 @@ class Sonora:
         columns = (("id", "ID", 62), ("kind", "Tipo", 174), ("ext", "Formato", 73), ("res", "Resolução", 83),
                    ("fps", "FPS", 55), ("rate", "kbps", 65), ("size", "Tamanho", 104), ("codec", "Codec", 170))
         tree = self.make_table(pane, columns, "codec")
-        tree.tag_configure("even", background="#1e1f22")
+        tree.tag_configure("even", background="#191e28")
         for index, row in enumerate(rows):
             tree.insert("", "end", values=row, tags=("even",) if index % 2 == 0 else ())
 
