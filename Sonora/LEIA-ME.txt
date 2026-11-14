@@ -12,6 +12,8 @@ COMO ABRIR
    FFprobe se ambos estiverem na mesma pasta e o FFmpeg estiver no PATH.
 
 ATUALIZAÇÃO
+Para migrar da 1.2.0, extraia este ZIP completo com o app fechado.
+A partir da 1.3.0, a atualização automática também atualiza Sonora.exe.
 Feche o Sonora antes de atualizar. Extraia o ZIP e substitua os arquivos
 na pasta atual do Sonora, mantendo a estrutura do ZIP. A fila e o
 histórico são guardados separadamente dos arquivos do aplicativo.
@@ -43,6 +45,8 @@ ATALHOS NO WINDOWS
 Abra Abrir_Sonora.cmd. Na primeira abertura desta versão, os atalhos
 Sonora serão criados na área de trabalho e no menu Iniciar.
 O Sonora usa seu próprio ícone na barra de tarefas quando aberto.
+Se já havia um atalho fixado com ícone do Python, desafixe-o e fixe
+o novo Sonora depois de abrir pelo Abrir_Sonora.cmd.
 Para manter o ícone após fechar o app, pesquise Sonora no menu Iniciar,
 clique com o botão direito e escolha “Fixar na barra de tarefas”.
 O item também pode aparecer no menu do ícone com a janela aberta.

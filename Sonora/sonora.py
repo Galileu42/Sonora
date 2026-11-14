@@ -14,15 +14,16 @@ import engine as media
 import updater
 
 
-BG = "#091322"
-PANEL = "#102034"
-FIELD = "#1a2d46"
-BORDER = "#263d58"
-INK = "#eff7ff"
-MUTED = "#afc4dd"
-ACCENT = "#b4dfff"
+BG = "#18191b"
+PANEL = "#222326"
+FIELD = "#2c2e32"
+BORDER = "#36383d"
+INK = "#f4f4f6"
+MUTED = "#b4b6be"
+ACCENT = "#a9c6ff"
+BLUE = "#2e68e8"
 ASSETS = media.ROOT / "assets"
-APP_ID = "Sonora.Downloads.Desktop"
+APP_ID = "Sonora.Windows.Desktop"
 FONT = "Segoe UI" if os.name == "nt" else "DejaVu Sans"
 DEFAULT_FOLDER = str(Path.home() / "Downloads" / "Sonora")
 
@@ -54,6 +55,7 @@ class Sonora:
         state = media.load_state()
         settings = state["settings"]
         self.jobs = state["jobs"]
+        self.queue_filter = "Todos"
         self.folder = tk.StringVar(value=settings.get("folder", DEFAULT_FOLDER))
         self.mode = tk.StringVar(value=settings.get("mode", "Áudio"))
         self.format = tk.StringVar(value=settings.get("format", "MP3"))
@@ -87,9 +89,15 @@ class Sonora:
         style.configure(".", background=BG, foreground=INK, font=(FONT, 10))
         style.configure("TButton", padding=(12, 7), background=FIELD, borderwidth=0,
                         focuscolor=ACCENT, focusthickness=1)
-        style.map("TButton", background=[("active", "#29415e")], foreground=[("disabled", "#70869e")])
-        style.configure("Primary.TButton", background=ACCENT, foreground="#10243c", font=(FONT, 10, "bold"))
-        style.map("Primary.TButton", background=[("disabled", FIELD), ("active", "#d3edff")])
+        style.map("TButton", background=[("active", "#3b3d43")], foreground=[("disabled", "#858892")])
+        style.configure("Primary.TButton", background=BLUE, foreground="#ffffff", font=(FONT, 10, "bold"))
+        style.map("Primary.TButton", background=[("disabled", FIELD), ("active", "#3e78fa")])
+        style.configure("Selected.TButton", background="#314973", foreground="#edf3ff",
+                        font=(FONT, 10, "bold"))
+        style.map("Selected.TButton", background=[("active", "#3c5787")])
+        style.configure("Queue.TButton", padding=(9, 4), background=PANEL, foreground=MUTED)
+        style.configure("QueueSelected.TButton", padding=(9, 4), background=FIELD, foreground=ACCENT)
+        style.map("Queue.TButton", background=[("active", FIELD)])
         style.configure("TCheckbutton", background=PANEL, indicatorbackground=FIELD, padding=(0, 3))
         style.map("TCheckbutton", indicatorcolor=[("selected", ACCENT)], background=[("active", PANEL)])
         style.configure("TEntry", fieldbackground=FIELD, foreground=INK, insertcolor=INK, padding=7,
@@ -100,127 +108,148 @@ class Sonora:
                   bordercolor=[("focus", ACCENT)])
         self.root.option_add("*TCombobox*Listbox.background", FIELD)
         self.root.option_add("*TCombobox*Listbox.foreground", INK)
-        self.root.option_add("*TCombobox*Listbox.selectBackground", "#304f70")
+        self.root.option_add("*TCombobox*Listbox.selectBackground", "#304672")
         self.root.option_add("*TCombobox*Listbox.selectForeground", INK)
-        style.configure("Treeview", background=PANEL, fieldbackground=PANEL, foreground=INK,
+        style.layout("Treeview", [("Treeview.treearea", {"sticky": "nswe"})])
+        style.configure("Treeview", background=BG, fieldbackground=BG, foreground=INK,
                         borderwidth=0, rowheight=max(31, round(self.root.winfo_fpixels("0.33i"))))
         style.configure("Treeview.Heading", background=FIELD, foreground=MUTED, relief="flat",
                         padding=(8, 7), font=(FONT, 9, "bold"))
-        style.map("Treeview", background=[("selected", "#304f70")], foreground=[("selected", INK)])
+        style.map("Treeview", background=[("selected", "#304672")], foreground=[("selected", INK)])
         style.configure("Vertical.TScrollbar", background=FIELD, troughcolor=PANEL, arrowcolor=MUTED, borderwidth=0)
         style.configure("Horizontal.TProgressbar", background=ACCENT, troughcolor=FIELD, borderwidth=0)
 
     def build(self):
-        main = tk.Frame(self.root, bg=BG, padx=24, pady=17)
-        main.pack(fill="both", expand=True)
-        top = tk.Frame(main, bg=BG)
-        top.pack(fill="x", pady=(0, 13))
+        toolbar = tk.Frame(self.root, bg=PANEL, padx=18, pady=10)
+        toolbar.pack(fill="x")
         self.brand = tk.PhotoImage(file=ASSETS / "marca.png")
-        tk.Label(top, image=self.brand, bg=BG).pack(side="left", padx=(0, 12))
-        nameplate = tk.Frame(top, bg=BG)
-        nameplate.pack(side="left")
-        tk.Label(nameplate, text="Sonora", font=(FONT, 26, "bold"), bg=BG, fg=INK).pack(anchor="w")
-        tk.Label(nameplate, text="Áudio e vídeo do YouTube", font=(FONT, 10), bg=BG, fg=MUTED).pack(anchor="w")
-        ttk.Button(top, text="Abrir pasta", command=self.open_folder).pack(side="right")
-        ttk.Button(top, text="Atualizações", command=self.update_dialog).pack(side="right", padx=(0, 7))
+        tk.Label(toolbar, image=self.brand, bg=PANEL).pack(side="left", padx=(0, 11))
+        tk.Label(toolbar, text="Sonora", bg=PANEL, fg=INK, font=(FONT, 19, "bold")).pack(side="left")
+        tk.Label(toolbar, text="Downloads", bg=PANEL, fg=MUTED, font=(FONT, 10)).pack(side="left", padx=20)
+        ttk.Button(toolbar, text="Atualizações", command=self.update_dialog).pack(side="right")
+        ttk.Button(toolbar, text="Abrir pasta", command=self.open_folder).pack(side="right", padx=8)
+        tk.Frame(self.root, bg=BORDER, height=1).pack(fill="x")
 
-        workspace = tk.Frame(main, bg=BG)
-        workspace.pack(fill="x", pady=(0, 15))
-        workspace.columnconfigure(0, weight=5, uniform="workspace")
-        workspace.columnconfigure(1, weight=4, uniform="workspace")
-        links_card = self.card(workspace)
-        links_card.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
-        links_card.columnconfigure(0, weight=1)
-        links_card.rowconfigure(2, weight=1)
-        self.label(links_card, "Links do YouTube", heading=True).grid(row=0, column=0, sticky="w")
-        self.label(links_card, "Cole um link por linha para adicionar em lote.").grid(
-            row=1, column=0, sticky="w", pady=(1, 7)
+        status = tk.Frame(self.root, bg=PANEL, padx=17, pady=8)
+        status.pack(side="bottom", fill="x")
+        tk.Label(status, text=f"Sonora {updater.VERSION}", bg=PANEL, fg=MUTED, font=(FONT, 9)).pack(side="right")
+        self.progress_label = tk.StringVar(value="0%")
+        tk.Label(status, textvariable=self.progress_label, bg=PANEL, fg=ACCENT,
+                 font=(FONT, 9, "bold"), width=5).pack(side="right", padx=(6, 12))
+        ttk.Progressbar(status, variable=self.percent, maximum=100, length=130).pack(side="right")
+        tk.Label(status, textvariable=self.status, bg=PANEL, fg=MUTED, anchor="w", font=(FONT, 9)).pack(
+            side="left", fill="x", expand=True
         )
-        self.links = tk.Text(links_card, height=3, width=1, wrap="word", font=(FONT, 10), bg=FIELD,
-                             fg=INK, insertbackground=INK, highlightthickness=1, highlightcolor=ACCENT,
-                             highlightbackground=BORDER, relief="flat", padx=10, pady=7, undo=True)
-        self.links.grid(row=2, column=0, sticky="nsew")
-        ttk.Checkbutton(links_card, text="Incluir todos os vídeos da playlist", variable=self.playlist).grid(
-            row=3, column=0, sticky="w", pady=(4, 3)
-        )
-        tools = tk.Frame(links_card, bg=PANEL)
-        tools.grid(row=4, column=0, sticky="ew")
-        ttk.Button(tools, text="Colar links", command=self.paste).pack(side="left")
-        self.inspect_button = ttk.Button(tools, text="Ver formatos e tamanhos", command=self.inspect)
-        self.inspect_button.pack(side="left", padx=6)
+        self.percent.trace_add("write", lambda *_: self.progress_label.set(f"{self.percent.get():.0f}%"))
 
-        settings = self.card(workspace)
-        settings.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
-        settings.columnconfigure(2, weight=1)
-        self.label(settings, "Configurar download", heading=True).grid(row=0, column=0, columnspan=3, sticky="w")
-        for col, title in enumerate(("Tipo", "Formato", "Qualidade")):
-            self.label(settings, title).grid(row=1, column=col, sticky="w", pady=(7, 3))
-        mode = ttk.Combobox(settings, textvariable=self.mode, values=("Áudio", "Vídeo"), state="readonly", width=7)
-        self.format_box = ttk.Combobox(settings, textvariable=self.format, state="readonly", width=9)
-        self.quality_box = ttk.Combobox(settings, state="readonly", width=15)
-        for col, widget in enumerate((mode, self.format_box, self.quality_box)):
-            widget.grid(row=2, column=col, sticky="ew", padx=(0, 7 if col < 2 else 0))
-        mode.bind("<<ComboboxSelected>>", self.update_options)
+        workspace = tk.Frame(self.root, bg=BG, padx=13, pady=12)
+        workspace.pack(fill="both", expand=True)
+        sidebar = self.card(workspace)
+        sidebar.pack(side="right", fill="y", padx=(9, 0))
+        sidebar.configure(width=255)
+        sidebar.pack_propagate(False)
+        self.label(sidebar, "Saída", heading=True).pack(anchor="w", pady=(0, 14))
+        self.label(sidebar, "Tipo de mídia").pack(anchor="w")
+        modes = tk.Frame(sidebar, bg=PANEL)
+        modes.pack(fill="x", pady=(5, 13))
+        self.mode_buttons = {}
+        for name in ("Áudio", "Vídeo"):
+            button = ttk.Button(modes, text=name, command=lambda value=name: self.select_mode(value))
+            button.pack(side="left", fill="x", expand=True, padx=(0, 4) if name == "Áudio" else (4, 0))
+            self.mode_buttons[name] = button
+
+        self.label(sidebar, "Formato").pack(anchor="w")
+        self.format_box = ttk.Combobox(sidebar, textvariable=self.format, state="readonly", width=15)
+        self.format_box.pack(fill="x", pady=(5, 12))
         self.format_box.bind("<<ComboboxSelected>>", self.update_options)
+        self.label(sidebar, "Qualidade").pack(anchor="w")
+        self.quality_box = ttk.Combobox(sidebar, state="readonly", width=15)
+        self.quality_box.pack(fill="x", pady=(5, 5))
         self.quality_box.bind("<<ComboboxSelected>>", self.set_quality)
-        self.label(settings, "Salvar em").grid(row=3, column=0, columnspan=3, sticky="w", pady=(7, 3))
-        path_row = tk.Frame(settings, bg=PANEL)
-        path_row.grid(row=4, column=0, columnspan=3, sticky="ew")
-        ttk.Entry(path_row, textvariable=self.folder, width=12).pack(side="left", fill="x", expand=True)
-        ttk.Button(path_row, text="Escolher…", command=self.choose_folder).pack(side="right", padx=(7, 0))
-        self.label(settings, "", self.summary).grid(row=5, column=0, columnspan=3, sticky="w", pady=(3, 4))
-        ttk.Button(settings, text="Adicionar à fila", style="Primary.TButton", command=self.enqueue).grid(
-            row=6, column=0, columnspan=3, sticky="e"
-        )
+        note = self.label(sidebar, "", self.summary)
+        note.configure(wraplength=216, justify="left", anchor="w", height=2)
+        note.pack(fill="x")
+        tk.Frame(sidebar, bg=BORDER, height=1).pack(fill="x", pady=(13, 12))
+        self.label(sidebar, "Pasta de destino").pack(anchor="w")
+        ttk.Entry(sidebar, textvariable=self.folder, width=16).pack(fill="x", pady=(5, 7))
+        ttk.Button(sidebar, text="Alterar pasta…", command=self.choose_folder).pack(anchor="w")
 
-        queue = self.card(main)
+        work = tk.Frame(workspace, bg=BG)
+        work.pack(side="left", fill="both", expand=True)
+        links = self.card(work)
+        links.pack(fill="x", pady=(0, 9))
+        header = tk.Frame(links, bg=PANEL)
+        header.pack(fill="x", pady=(0, 7))
+        self.label(header, "Origem", heading=True).pack(side="left")
+        self.label(header, "Links do YouTube · um por linha").pack(side="left", padx=12)
+        self.links = tk.Text(links, height=3, width=1, wrap="word", font=(FONT, 10), bg=BG, fg=INK,
+                             insertbackground=INK, highlightthickness=1, highlightcolor=ACCENT,
+                             highlightbackground=BORDER, relief="flat", padx=9, pady=7, undo=True)
+        self.links.pack(fill="x")
+        actions = tk.Frame(links, bg=PANEL)
+        actions.pack(fill="x", pady=(7, 0))
+        ttk.Button(actions, text="Adicionar à fila", style="Primary.TButton", command=self.enqueue).pack(side="right")
+        ttk.Button(actions, text="Colar", command=self.paste).pack(side="left")
+        self.inspect_button = ttk.Button(actions, text="Ver formatos", command=self.inspect)
+        self.inspect_button.pack(side="left", padx=(6, 8))
+        ttk.Checkbutton(actions, text="Playlist inteira", variable=self.playlist).pack(side="left")
 
+        queue = self.card(work)
+        queue.pack(fill="both", expand=True)
         header = tk.Frame(queue, bg=PANEL)
-        header.pack(fill="x", pady=(0, 8))
+        header.pack(fill="x", pady=(0, 9))
         self.label(header, "Fila de downloads", heading=True).pack(side="left")
-        self.counts = tk.StringVar(value="")
-        self.label(header, "", self.counts).pack(side="left", padx=10)
+        self.counts = tk.StringVar()
+        self.label(header, "", self.counts).pack(side="left", padx=(10, 0))
         self.start_button = ttk.Button(header, text="Iniciar fila", style="Primary.TButton", command=self.toggle)
         self.start_button.pack(side="right")
-        self.clear_button = ttk.Button(header, text="Limpar concluídos", command=self.clear_done)
-        self.clear_button.pack(side="right", padx=(0, 7))
-        table = tk.Frame(queue, bg=PANEL)
-        columns = (("title", "Título ou link", 390), ("format", "Formato", 100),
-                   ("quality", "Qualidade", 98), ("status", "Estado", 130))
+
+        filters = tk.Frame(queue, bg=PANEL)
+        filters.pack(fill="x", pady=(0, 7))
+        self.filter_buttons = {}
+        for name in ("Todos", "Pendentes", "Concluídos", "Falhas"):
+            button = ttk.Button(filters, text=name, style="Queue.TButton",
+                                command=lambda value=name: self.select_queue(value))
+            button.pack(side="left", padx=(0, 5))
+            self.filter_buttons[name] = button
+
+        footer = tk.Frame(queue, bg=PANEL)
+        footer.pack(side="bottom", fill="x", pady=(9, 0))
+        self.action_buttons = {}
+        for key, caption, action in (
+            ("Detalhes / abrir", "Abrir / detalhes", self.details),
+            ("Tentar novamente", "Repetir", self.retry),
+            ("Remover", "Remover", self.remove),
+            ("Cancelar atual", "Cancelar atual", self.cancel),
+        ):
+            button = ttk.Button(footer, text=caption, command=action)
+            button.pack(side="left", padx=(0, 5))
+            self.action_buttons[key] = button
+        self.clear_button = ttk.Button(footer, text="Limpar concluídos", command=self.clear_done)
+        self.clear_button.pack(side="right")
+        table = tk.Frame(queue, bg=BG, highlightthickness=1, highlightbackground=BORDER)
+        table.pack(fill="both", expand=True)
+        columns = (("title", "Título", 235), ("format", "Formato", 75),
+                   ("quality", "Qualidade", 85), ("status", "Estado", 105))
         self.tree = self.make_table(table, columns, stretch="title")
         self.tree.bind("<Double-1>", lambda _: self.details())
         self.tree.bind("<<TreeviewSelect>>", lambda _: self.update_controls())
-        self.empty = tk.Label(table, text="Adicione links para começar", bg=PANEL, fg=MUTED, font=(FONT, 11))
-        self.empty.bind("<Button-1>", lambda _: self.links.focus_set())
-        self.tree.tag_configure("even", background="#142338")
+        self.empty = tk.Frame(table, bg=BG)
+        self.empty_title = tk.StringVar()
+        tk.Label(self.empty, textvariable=self.empty_title, bg=BG, fg=INK, font=(FONT, 13, "bold")).pack()
+        self.empty_hint = tk.StringVar()
+        tk.Label(self.empty, textvariable=self.empty_hint, bg=BG, fg=MUTED,
+                 font=(FONT, 10)).pack(pady=(5, 0))
+        self.tree.tag_configure("even", background="#1e1f22")
         self.tree.tag_configure(media.DONE, foreground="#a9e7cc")
         self.tree.tag_configure(media.FAILED, foreground="#ffc5c2")
         self.tree.tag_configure(media.STOPPED, foreground=MUTED)
-
-        footer = tk.Frame(queue, bg=PANEL)
-        footer.pack(side="bottom", fill="x", pady=(7, 0))
-        self.action_buttons = {}
-        for title, action in (
-            ("Detalhes / abrir", self.details), ("Tentar novamente", self.retry),
-            ("Remover", self.remove), ("Cancelar atual", self.cancel),
-        ):
-            button = ttk.Button(footer, text=title, command=action)
-            button.pack(side="left", padx=(0, 5))
-            self.action_buttons[title] = button
-        table.pack(fill="both", expand=True)
-        progress = tk.Frame(main, bg=BG)
-
-        tk.Label(progress, textvariable=self.status, bg=BG, fg=MUTED, anchor="w", font=(FONT, 9)).pack(
-            side="left", fill="x", expand=True
-        )
-        self.progress_label = tk.StringVar(value="0%")
-        tk.Label(progress, textvariable=self.progress_label, bg=BG, fg=ACCENT, font=(FONT, 9, "bold")).pack(side="right")
-        ttk.Progressbar(main, variable=self.percent, maximum=100).pack(side="bottom", fill="x", pady=(4, 0))
-        progress.pack(side="bottom", fill="x", pady=(8, 0))
-        queue.pack(fill="both", expand=True)
-        self.percent.trace_add("write", lambda *_: self.progress_label.set(f"{self.percent.get():.0f}%"))
         self.root.bind("<Control-Return>", lambda _: self.enqueue())
         self.links.focus_set()
+
+    def select_mode(self, mode):
+        self.mode.set(mode)
+        self.update_options()
 
     @staticmethod
     def card(parent):
@@ -253,6 +282,8 @@ class Sonora:
         self.links.insert("end", data.strip())
 
     def update_options(self, _event=None):
+        for name, button in self.mode_buttons.items():
+            button.configure(style="Selected.TButton" if self.mode.get() == name else "TButton")
         formats = media.AUDIO if self.mode.get() == "Áudio" else media.VIDEO
         self.format_box.configure(values=formats)
         if self.format.get() not in formats:
@@ -325,6 +356,7 @@ class Sonora:
             messagebox.showwarning("Verifique os links ou a pasta", str(exc), parent=self.root)
             return
         self.jobs.extend(jobs)
+        self.queue_filter = "Todos"
         self.links.delete("1.0", "end")
         self.changed()
         self.status.set(f"{len(jobs)} link(s) adicionado(s).")
@@ -392,12 +424,24 @@ class Sonora:
         ttk.Button(buttons, text="Fechar", command=dialog.destroy).pack(side="right")
         dialog.bind("<Escape>", lambda _: dialog.destroy())
 
+    def select_queue(self, name):
+        self.queue_filter = name
+        self.refresh()
+
     def refresh(self):
         selected = set(self.tree.selection())
         children = self.tree.get_children()
         if children:
             self.tree.delete(*children)
-        for index, job in enumerate(self.jobs):
+        statuses = {
+            "Pendentes": {media.PENDING, media.ACTIVE},
+            "Concluídos": {media.DONE},
+            "Falhas": {media.FAILED, media.STOPPED},
+        }.get(self.queue_filter)
+        visible = [job for job in self.jobs if statuses is None or job.status in statuses]
+        for name, button in self.filter_buttons.items():
+            button.configure(style="QueueSelected.TButton" if name == self.queue_filter else "Queue.TButton")
+        for index, job in enumerate(visible):
             quality = job.quality
             if job.mode == "Áudio" and quality.isdigit():
                 quality += " kbps"
@@ -407,9 +451,11 @@ class Sonora:
             ), tags=(job.status, "even") if index % 2 == 0 else (job.status,))
             if job.id in selected:
                 self.tree.selection_add(job.id)
-        if self.jobs:
+        if visible:
             self.empty.place_forget()
         else:
+            self.empty_title.set("A fila está vazia" if self.queue_filter == "Todos" else "Nenhum item nesta lista")
+            self.empty_hint.set("Cole um link em Origem para começar." if self.queue_filter == "Todos" else "")
             self.empty.place(relx=0.5, rely=0.56, anchor="center")
         pending = sum(job.status == media.PENDING for job in self.jobs)
         done = sum(job.status == media.DONE for job in self.jobs)
@@ -540,7 +586,7 @@ class Sonora:
         columns = (("id", "ID", 62), ("kind", "Tipo", 174), ("ext", "Formato", 73), ("res", "Resolução", 83),
                    ("fps", "FPS", 55), ("rate", "kbps", 65), ("size", "Tamanho", 104), ("codec", "Codec", 170))
         tree = self.make_table(pane, columns, "codec")
-        tree.tag_configure("even", background="#142338")
+        tree.tag_configure("even", background="#1e1f22")
         for index, row in enumerate(rows):
             tree.insert("", "end", values=row, tags=("even",) if index % 2 == 0 else ())
 
@@ -559,6 +605,7 @@ class Sonora:
                 identifier, kind, *_ = tree.item(item, "values")
                 self.jobs.append(media.Job(url, "Faixa nativa", kind, str(identifier), folder,
                                            title=document.get("title") or ""))
+            self.queue_filter = "Todos"
             self.changed()
             self.status.set("Faixas adicionadas à fila.")
             dialog.destroy()
@@ -738,7 +785,7 @@ class Sonora:
             Thread(target=self.lookup.stop, daemon=True).start()
 
 
-if __name__ == "__main__":
+def main():
     if os.name == "nt":
         import ctypes
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_ID)
@@ -759,3 +806,7 @@ if __name__ == "__main__":
         else:
             Sonora(window)
             window.mainloop()
+
+
+if __name__ == "__main__":
+    main()

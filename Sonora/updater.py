@@ -17,14 +17,13 @@ import time
 
 
 ROOT = Path(__file__).resolve().parent
-VERSION = "1.2.0"
-# Repositório oficial usado para consultar o GitHub Releases.
+VERSION = "1.3.0"
 DEFAULT_REPO = "Galileu42/Sonora"
 ASSET = "Sonora_Windows.zip"
 MAX_BYTES = 20 * 1024 * 1024
 FILES = {
     "Abrir_Sonora.cmd", "Atualizar_Motor.cmd", "Criar_Atalhos.cmd", "Criar_Atalhos.ps1",
-    "LEIA-ME.txt", "Preparar.cmd", "Preparar.ps1", "engine.py", "sonora.py", "updater.py",
+    "LEIA-ME.txt", "Preparar.cmd", "Preparar.ps1", "engine.py", "sonora.py", "updater.py", "Sonora.exe",
     "assets/marca.png", "assets/sonora.ico", "assets/sonora.png",
 }
 
@@ -207,7 +206,8 @@ def launch(staging, lock_path):
     # Run a copy so Windows can replace updater.py along with the app.
     helper = staging / "install.py"
     shutil.copyfile(__file__, helper)
-    subprocess.Popen([sys.executable, str(helper), "--install", str(staging), str(lock_path)],
+    python = ROOT / ".venv" / "Scripts" / "python.exe" if os.name == "nt" else sys.executable
+    subprocess.Popen([str(python), str(helper), "--install", str(staging), str(lock_path)],
                      stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                      creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
                      start_new_session=os.name != "nt")

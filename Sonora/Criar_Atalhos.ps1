@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'Stop'
 Set-Location -LiteralPath $PSScriptRoot
-$python = Join-Path $PSScriptRoot '.venv\Scripts\pythonw.exe'
-$script = Join-Path $PSScriptRoot 'sonora.py'
+$launcher = Join-Path $PSScriptRoot 'Sonora.exe'
+if (-not (Test-Path -LiteralPath $launcher)) { throw 'Extraia o ZIP completo do Sonora.' }
 $icon = Join-Path $PSScriptRoot 'assets\sonora.ico'
 
 Add-Type -TypeDefinition @'
@@ -58,12 +58,12 @@ foreach ($folder in @('DesktopDirectory', 'Programs')) {
     if (-not $directory) { throw "Pasta de atalhos indisponivel: $folder" }
     $path = Join-Path $directory 'Sonora.lnk'
     $shortcut = $shell.CreateShortcut($path)
-    $shortcut.TargetPath = $python
-    $shortcut.Arguments = '"' + $script + '"'
+    $shortcut.TargetPath = $launcher
+    $shortcut.Arguments = ''
     $shortcut.WorkingDirectory = $PSScriptRoot
     $shortcut.Description = 'Sonora - Audio e video do YouTube'
     $shortcut.IconLocation = "$icon,0"
     $shortcut.Save()
-    [SonoraShortcut]::SetAppId($path, 'Sonora.Downloads.Desktop')
+    [SonoraShortcut]::SetAppId($path, 'Sonora.Windows.Desktop')
 }
-Set-Content -LiteralPath '.atalhos-v2' -Value 'Sonora' -Encoding Ascii
+Set-Content -LiteralPath '.atalhos-v3' -Value 'Sonora' -Encoding Ascii

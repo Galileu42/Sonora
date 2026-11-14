@@ -8,7 +8,7 @@ goto abrir
 call "%~dp0Preparar.cmd"
 if errorlevel 1 exit /b 1
 :abrir
-if not exist ".atalhos-v2" (
+if not exist ".atalhos-v3" (
     powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0Criar_Atalhos.ps1"
     if errorlevel 1 (
         echo Houve um erro ao criar os atalhos. O app ainda pode abrir.
@@ -16,4 +16,9 @@ if not exist ".atalhos-v2" (
         pause
     )
 )
-start "" "%~dp0.venv\Scripts\pythonw.exe" "%~dp0sonora.py"
+if not exist "%~dp0Sonora.exe" (
+    echo Extraia o ZIP completo do Sonora para instalar esta versao.
+    pause
+    exit /b 1
+)
+start "" "%~dp0Sonora.exe"

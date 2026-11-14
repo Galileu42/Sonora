@@ -74,8 +74,10 @@ def downloader():
     if not (ffmpeg and ffprobe):
         raise RuntimeError("FFmpeg ou FFprobe ausente. Execute Preparar.cmd e abra o app novamente.")
     python = Path(sys.executable)
-    if python.name.lower() == "pythonw.exe":
-        python = python.with_name("python.exe")
+    if os.name == "nt":
+        python = ROOT / ".venv" / "Scripts" / "python.exe"
+        if not python.is_file():
+            raise RuntimeError("Execute Abrir_Sonora.cmd para preparar o ambiente Python.")
     command = [str(python), "-m", "yt_dlp", "--ignore-config", "--no-colors", "--encoding", "utf-8",
                "--socket-timeout", "20", "--ffmpeg-location", str(Path(ffmpeg).parent)]
     deno = executable("deno")
