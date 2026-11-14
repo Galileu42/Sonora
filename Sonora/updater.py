@@ -17,7 +17,7 @@ import time
 
 
 ROOT = Path(__file__).resolve().parent
-VERSION = "1.3.0"
+VERSION = "1.4.0"
 DEFAULT_REPO = "Galileu42/Sonora"
 ASSET = "Sonora_Windows.zip"
 MAX_BYTES = 20 * 1024 * 1024
@@ -161,7 +161,16 @@ def replace_files(root, staging):
             if existed:
                 previous.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(destination, previous)
-            os.replace(staging / "payload" / name, destination)
+            source = staging / "payload" / name
+            for attempt in range(20):
+                try:
+                    os.replace(source, destination)
+                    break
+                except PermissionError:
+                    if name != "Sonora.exe" or attempt == 19:
+                        raise
+                    # The window has closed, but Windows can still be releasing the image.
+                    time.sleep(0.25)
             applied.append((destination, previous, existed))
     except OSError:
         for destination, previous, existed in reversed(applied):

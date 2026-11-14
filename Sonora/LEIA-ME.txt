@@ -1,7 +1,13 @@
 SONORA
 Downloads e conversão de áudio e vídeo do YouTube
 
-COMO ABRIR
+INSTALAÇÃO NO WINDOWS
+Abra Sonora_Setup.exe e aguarde. Ele instala na pasta do seu usuário,
+cria atalhos e abre o Sonora. A primeira instalação requer internet
+para preparar as dependências. Se necessário, o instalador usa o
+WinGet para instalar Python 3.13. A fila existente é preservada.
+
+COMO ABRIR O PACOTE PORTÁTIL
 1. Extraia o ZIP inteiro para uma pasta de sua preferência.
 2. Tenha Python 3.10 ou superior instalado com Tcl/Tk e o inicializador
    “py”. Download: https://www.python.org/downloads/windows/
