@@ -1,8 +1,11 @@
 1 24 "sonora.manifest"
+301 RCDATA "Nunito-Regular.ttf"
+302 RCDATA "Nunito-Bold.ttf"
+303 RCDATA "Nunito-OFL.txt"
 1 ICON "../Sonora/assets/sonora.ico"
 1 VERSIONINFO
-FILEVERSION 1,7,9,0
-PRODUCTVERSION 1,7,9,0
+FILEVERSION 1,8,0,0
+PRODUCTVERSION 1,8,0,0
 FILEOS 0x40004
 FILETYPE 1
 BEGIN
@@ -14,7 +17,7 @@ BEGIN
             VALUE "InternalName", "Sonora"
             VALUE "OriginalFilename", "Sonora.exe"
             VALUE "ProductName", "Sonora"
-            VALUE "ProductVersion", "1.7.9"
+            VALUE "ProductVersion", "1.8.0"
         END
     END
     BLOCK "VarFileInfo"

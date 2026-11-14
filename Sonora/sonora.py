@@ -105,7 +105,77 @@ class Sonora:
         self.root.after(70, self.poll)
         self.root.after(5000 if SAFE_START else 1500, self.check_updates)
         self.root.after(200, self.report_update_error)
-        self.root.after_idle(signal_startup_ready)
+        self.root.after_idle(self.finish_startup)
+
+    def finish_startup(self):
+        signal_startup_ready()
+        self.root.after(90, self.apply_rounded_style)
+        if os.name == "nt":
+            self.root.after(250, self.load_rounded_font)
+
+    def apply_rounded_style(self):
+        if self.closing:
+            return
+        style = ttk.Style(self.root)
+        try:
+            style.theme_create("sonora", parent="clam")
+            style.theme_use("sonora")
+            self.configure_style(style)
+            self.rounded_styles(style)
+        except tk.TclError as error:
+            style.theme_use("clam")
+            log_startup(f"Tema arredondado indisponível: {error}")
+
+    def load_rounded_font(self):
+        if not self.closing:
+            Thread(target=self.register_font, daemon=True).start()
+
+    def register_font(self):
+        import ctypes as ct
+        from ctypes import wintypes as wt
+
+        kernel = ct.windll.kernel32
+        kernel.FindResourceW.argtypes = (wt.HMODULE, ct.c_void_p, ct.c_void_p)
+        kernel.FindResourceW.restype = wt.HRSRC
+        kernel.LoadResource.argtypes = (wt.HMODULE, wt.HRSRC)
+        kernel.LoadResource.restype = wt.HGLOBAL
+        kernel.SizeofResource.argtypes = (wt.HMODULE, wt.HRSRC)
+        kernel.SizeofResource.restype = wt.DWORD
+        kernel.LockResource.argtypes = (wt.HGLOBAL,)
+        kernel.LockResource.restype = ct.c_void_p
+        kernel.LoadLibraryExW.argtypes = (wt.LPCWSTR, wt.HANDLE, wt.DWORD)
+        kernel.LoadLibraryExW.restype = wt.HMODULE
+        kernel.FreeLibrary.argtypes = (wt.HMODULE,)
+        module = kernel.LoadLibraryExW(str(ASSETS.parent / "Sonora.exe"), None, 0x22)
+        if not module:
+            log_startup("Não foi possível abrir os recursos de fonte")
+            return
+        add = ct.windll.gdi32.AddFontResourceExW
+        add.argtypes = (wt.LPCWSTR, wt.DWORD, ct.c_void_p)
+        add.restype = ct.c_int
+        try:
+            folder = media.DATA / "fontes"
+            folder.mkdir(exist_ok=True)
+            for resource_id in (301, 302):
+                resource = kernel.FindResourceW(module, resource_id, 10)
+                if not resource:
+                    return
+                loaded = kernel.LoadResource(module, resource)
+                pointer = kernel.LockResource(loaded) if loaded else None
+                if not pointer:
+                    return
+                data = ct.string_at(pointer, kernel.SizeofResource(module, resource))
+                path = folder / f"Nunito-{resource_id}.ttf"
+                if not path.exists() or path.read_bytes() != data:
+                    path.write_bytes(data)
+                if not add(str(path), 0x10, None):
+                    return
+        except (OSError, ValueError) as error:
+            log_startup(f"Fonte arredondada indisponível: {error}")
+            return
+        finally:
+            kernel.FreeLibrary(module)
+        self.events.put(("rounded_font", None))
 
     def style(self):
         style = ttk.Style(self.root)
@@ -117,6 +187,9 @@ class Sonora:
             native_font = tkfont.nametofont(name, self.root)
             native_font.configure(family=family, size=11)
             self.fonts.append(native_font)
+        self.configure_style(style)
+
+    def configure_style(self, style):
         self.root.option_add("*TCombobox*Listbox.font", "TkTextFont")
         style.configure(".", background=BG, foreground=INK, font=font_name(11))
         style.configure("TButton", padding=(12, 7), background=FIELD, borderwidth=0,
@@ -145,13 +218,11 @@ class Sonora:
         style.configure("Treeview.Heading", background=FIELD, foreground=MUTED, relief="flat",
                         padding=(10, 8), font=font_name(10, "bold"))
         style.map("Treeview", background=[("selected", "#304672")], foreground=[("selected", INK)])
-        if SAFE_START:
-            style.configure("Card.TFrame", background=PANEL)
-            style.configure("Link.TFrame", background=BG)
-            style.configure("Horizontal.TProgressbar", background=ACCENT, troughcolor=FIELD)
+        style.configure("Card.TFrame", background=PANEL)
+        style.configure("Link.TFrame", background=BG)
+        style.configure("Horizontal.TProgressbar", background=ACCENT, troughcolor=FIELD)
+        if style.theme_use() == "clam":
             style.map("TButton", background=[("disabled", PANEL), ("active", "#384456")])
-        else:
-            self.rounded_styles(style)
 
     def surface(self, fill, radius, outline=None, chevron=False):
         """Draw a transparent, antialiased surface for Tk's stretchable elements."""
@@ -881,6 +952,15 @@ class Sonora:
                 event, data = self.events.get_nowait()
             except Empty:
                 break
+            if event == "rounded_font":
+                if not self.closing:
+                    for font in self.fonts:
+                        font.configure(family="Nunito")
+                    if self.fonts[0].actual("family").casefold() != "nunito":
+                        for font in self.fonts:
+                            font.configure(family=FONT)
+                        log_startup("O Tk não selecionou a fonte Nunito")
+                continue
             if event == "update_download":
                 self.update_status.set(f"Baixando Sonora {data}…")
                 continue
