@@ -74,6 +74,7 @@ class Sonora:
         self.update_repo = settings.get("update_repo", updater.DEFAULT_REPO)
         self.update_thread = None
         self.update_pending = None
+        self.restart_after_update = False
         self.update_status = tk.StringVar(value=f"Versão {updater.VERSION}")
         self.style()
         self.build()
@@ -126,7 +127,8 @@ class Sonora:
         tk.Label(toolbar, image=self.brand, bg=PANEL).pack(side="left", padx=(0, 11))
         tk.Label(toolbar, text="Sonora", bg=PANEL, fg=INK, font=(FONT, 19, "bold")).pack(side="left")
         tk.Label(toolbar, text="Downloads", bg=PANEL, fg=MUTED, font=(FONT, 10)).pack(side="left", padx=20)
-        ttk.Button(toolbar, text="Atualizações", command=self.update_dialog).pack(side="right")
+        self.update_button = ttk.Button(toolbar, text="Atualizações", command=self.update_dialog)
+        self.update_button.pack(side="right")
         ttk.Button(toolbar, text="Abrir pasta", command=self.open_folder).pack(side="right", padx=8)
         tk.Frame(self.root, bg=BORDER, height=1).pack(fill="x")
 
@@ -631,7 +633,7 @@ class Sonora:
         entry = ttk.Entry(panel, textvariable=value, width=51)
         entry.pack(fill="x")
         tk.Label(panel, bg=PANEL, fg=MUTED, justify="left", wraplength=415,
-                 text="As versões são baixadas em segundo plano e instaladas ao sair. "
+                 text="Quando houver uma versão nova, use Atualizar e reiniciar. "
                       "Use um repositório seu ou de um mantenedor em quem você confia. "
                       "Deixe o campo vazio para desativar.").pack(anchor="w", pady=(8, 10))
 
@@ -647,6 +649,7 @@ class Sonora:
             if repo != self.update_repo and self.update_pending:
                 updater.discard(self.update_pending[1])
                 self.update_pending = None
+                self.refresh_update_button()
             self.update_repo = repo
             self.persist()
             self.update_status.set(f"Versão {updater.VERSION}")
@@ -654,6 +657,17 @@ class Sonora:
 
         ttk.Button(panel, text="Salvar e verificar", style="Primary.TButton", command=save).pack(anchor="e")
         entry.focus_set()
+
+    def refresh_update_button(self):
+        self.update_button.configure(
+            text="Atualizar e reiniciar" if self.update_pending else "Atualizações",
+            command=self.apply_update if self.update_pending else self.update_dialog,
+            style="Primary.TButton" if self.update_pending else "TButton",
+        )
+
+    def apply_update(self):
+        if self.update_pending and not self.closing:
+            self.close(restart=True)
 
     def check_updates(self, manual=False):
         if self.closing:
@@ -663,7 +677,7 @@ class Sonora:
         if not self.update_repo or self.update_thread is not None:
             return
         if self.update_pending:
-            self.update_status.set(f"Versão {self.update_pending[0]} pronta para instalar ao sair")
+            self.update_status.set(f"Versão {self.update_pending[0]} pronta para instalar")
             return
         repo = self.update_repo
         self.update_status.set("Consultando o GitHub…")
@@ -701,8 +715,9 @@ class Sonora:
                     self.update_status.set(data)
                 elif data:
                     self.update_pending = data
-                    self.update_status.set(f"Versão {data[0]} pronta para instalar ao sair")
-                    self.status.set(f"Sonora {data[0]} baixado. A instalação será feita ao fechar.")
+                    self.refresh_update_button()
+                    self.update_status.set(f"Versão {data[0]} pronta para instalar")
+                    self.status.set(f"Sonora {data[0]} baixado. Clique em Atualizar e reiniciar.")
                 else:
                     self.update_status.set(f"Versão {updater.VERSION} · você está em dia")
                 continue
@@ -760,7 +775,8 @@ class Sonora:
             if not any(thread and thread.is_alive() for thread in (self.worker, self.lookup_thread, self.update_thread)):
                 if self.update_pending:
                     try:
-                        updater.launch(self.update_pending[1], media.DATA / "instance.lock")
+                        updater.launch(self.update_pending[1], media.DATA / "instance.lock",
+                                       restart=self.restart_after_update)
                     except OSError as error:
                         updater.discard(self.update_pending[1])
                         messagebox.showerror("Atualizações do Sonora", str(error), parent=self.root)
@@ -768,13 +784,14 @@ class Sonora:
                 return
         self.root.after(70, self.poll)
 
-    def close(self):
+    def close(self, restart=False):
         if self.closing:
             return
         if self.active and not messagebox.askyesno(
             "Sair do Sonora", "Interromper o download atual e deixá-lo na fila para a próxima sessão?", parent=self.root
         ):
             return
+        self.restart_after_update = restart
         self.closing = True
         self.running = False
         self.persist()

@@ -17,7 +17,7 @@ import time
 
 
 ROOT = Path(__file__).resolve().parent
-VERSION = "1.4.0"
+VERSION = "1.5.0"
 DEFAULT_REPO = "Galileu42/Sonora"
 ASSET = "Sonora_Windows.zip"
 MAX_BYTES = 20 * 1024 * 1024
@@ -211,23 +211,36 @@ def install(staging, lock_path):
             replace_files(root, staging)
 
 
-def launch(staging, lock_path):
+def launch(staging, lock_path, restart=False):
     # Run a copy so Windows can replace updater.py along with the app.
     helper = staging / "install.py"
     shutil.copyfile(__file__, helper)
     python = ROOT / ".venv" / "Scripts" / "python.exe" if os.name == "nt" else sys.executable
-    subprocess.Popen([str(python), str(helper), "--install", str(staging), str(lock_path)],
+    args = [str(python), str(helper), "--install", str(staging), str(lock_path)]
+    if restart:
+        args.append("--restart")
+    subprocess.Popen(args,
                      stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                      creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
                      start_new_session=os.name != "nt")
 
 
-if __name__ == "__main__" and len(sys.argv) == 4 and sys.argv[1] == "--install":
-    staging, lock = (Path(argument) for argument in sys.argv[2:])
+def install_from_helper(staging, lock, restart):
+    root = staging.parent
     try:
         install(staging, lock)
     except Exception as error:
         (lock.parent / "update_error.txt").write_text(str(error), encoding="utf-8")
-        if (staging / "backup").is_dir():
-            sys.exit(1)
-    shutil.rmtree(staging, ignore_errors=True)
+        if not (staging / "backup").is_dir():
+            discard(staging)
+    else:
+        discard(staging)
+    if restart:
+        executable = [str(root / "Sonora.exe")] if os.name == "nt" else [sys.executable, str(root / "sonora.py")]
+        subprocess.Popen(executable, cwd=root, stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+if __name__ == "__main__" and len(sys.argv) in {4, 5} and sys.argv[1] == "--install":
+    staging, lock = (Path(argument) for argument in sys.argv[2:4])
+    install_from_helper(staging, lock, sys.argv[4:] == ["--restart"])

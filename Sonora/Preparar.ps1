@@ -23,50 +23,70 @@ function Install-ToolsFromZip($url, $names) {
     }
 }
 
+# Windows PowerShell 5.1 can turn native stderr into a terminating
+# NativeCommandError when redirected with ErrorActionPreference=Stop.
+function Invoke-NativeResult($program, [string[]]$arguments) {
+    $ErrorActionPreference = 'Continue'
+    $lines = @(& $program @arguments 2>&1 | ForEach-Object { $_.ToString() })
+    return @{ Code = $LASTEXITCODE; Output = $lines }
+}
+
 try {
     Write-Host 'Preparando o Sonora para Windows...'
-    $probe = 'import struct, sys, tkinter; sys.exit(sys.version_info < (3, 10) or struct.calcsize("P") != 8)'
+    $probe = 'import sys, tkinter; sys.exit(sys.version_info < (3, 10) or sys.maxsize < 2**32)'
     $localPython = Join-Path $env:LOCALAPPDATA 'Programs\Python\Python313\python.exe'
-    $candidates = @('py.exe', $localPython, 'python.exe')
-    if (-not (Test-Path -LiteralPath '.venv\Scripts\python.exe')) {
+    $venv = Join-Path $PSScriptRoot '.venv'
+    $venvPython = Join-Path $venv 'Scripts\python.exe'
+    $checked = if (Test-Path -LiteralPath $venvPython -PathType Leaf) { Invoke-NativeResult $venvPython @('-I', '-c', $probe) }
+    if (-not $checked -or $checked.Code -ne 0) {
         $created = $false
+        $diagnostics = @()
+        $candidates = @($localPython, 'py.exe', 'python.exe')
         foreach ($command in $candidates) {
-            $available = Get-Command $command -ErrorAction SilentlyContinue
-            if ($available -and $available.Source -notlike '*\Microsoft\WindowsApps\python.exe') {
-                $arguments = @()
-                if ($command -eq 'py.exe') { $arguments += '-3' }
-                & $command @arguments -c $probe 2>$null
-                if ($LASTEXITCODE -eq 0) {
-                    & $command @arguments -m venv .venv
-                    if ($LASTEXITCODE -ne 0) { throw 'Falha ao criar o ambiente Python.' }
-                    $created = $true
-                    break
-                }
+            $available = Get-Command $command -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+            if (-not $available -or $available.Source -like '*\Microsoft\WindowsApps\python.exe') { continue }
+            $prefix = @()
+            if ($command -eq 'py.exe') { $prefix += '-3' }
+            $tested = Invoke-NativeResult $available.Source ($prefix + @('-I', '-c', $probe))
+            if ($tested.Code -ne 0) {
+                $diagnostics += $tested.Output
+                continue
             }
+            Write-Host "Usando Python em $($available.Source)"
+            $made = Invoke-NativeResult $available.Source ($prefix + @('-I', '-m', 'venv', '--clear', $venv))
+            if ($made.Code -eq 0) { $created = $true; break }
+            $diagnostics += $made.Output
         }
         if (-not $created -and $InstallPython) {
             if (-not (Get-Command winget.exe -ErrorAction SilentlyContinue)) {
-                throw 'O WinGet nao esta disponivel. Instale o Python 3.13 de 64 bits pelo site python.org e execute o Sonora Setup novamente.'
+                $diagnostics | ForEach-Object { Write-Host $_ }
+                throw 'O WinGet nao esta disponivel. Instale o Python 3.13 de 64 bits pelo site python.org.'
             }
             Write-Host 'Instalando Python 3.13 de 64 bits pelo WinGet...'
-            & winget.exe install --id Python.Python.3.13 --exact --source winget --scope user --architecture x64 --silent --accept-package-agreements --accept-source-agreements
-            if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $localPython -PathType Leaf)) {
-                throw 'O WinGet nao conseguiu preparar o Python. Instale o Python 3.13 de 64 bits pelo site python.org e tente novamente.'
+            $installed = Invoke-NativeResult 'winget.exe' @('install', '--id', 'Python.Python.3.13', '--exact',
+                '--source', 'winget', '--scope', 'user', '--architecture', 'x64', '--silent',
+                '--accept-package-agreements', '--accept-source-agreements')
+            $installed.Output | ForEach-Object { Write-Host $_ }
+            if (Test-Path -LiteralPath $localPython -PathType Leaf) {
+                $made = Invoke-NativeResult $localPython @('-I', '-m', 'venv', '--clear', $venv)
+                $created = $made.Code -eq 0
+                $diagnostics += $made.Output
             }
-            & $localPython -c $probe
-            if ($LASTEXITCODE -ne 0) { throw 'A instalacao do Python precisa incluir Tcl/Tk.' }
-            & $localPython -m venv .venv
-            if ($LASTEXITCODE -ne 0) { throw 'Falha ao criar o ambiente Python.' }
-            $created = $true
         }
         if (-not $created) {
-            throw 'Instale o Python 3.10 ou superior com Tcl/Tk pelo https://www.python.org/downloads/windows/ e execute este arquivo novamente.'
+            $diagnostics | ForEach-Object { Write-Host $_ }
+            throw 'Nao foi possivel preparar o Python de 64 bits com Tcl/Tk.'
         }
     }
-
+    $checked = Invoke-NativeResult $venvPython @('-I', '-c', $probe)
+    if ($checked.Code -ne 0) {
+        $checked.Output | ForEach-Object { Write-Host $_ }
+        throw 'O Python preparado pelo Sonora nao conseguiu carregar o Tcl/Tk.'
+    }
     Write-Host 'Instalando o yt-dlp...'
-    & '.\.venv\Scripts\python.exe' -m pip install --upgrade "yt-dlp[default]"
-    if ($LASTEXITCODE -ne 0) { throw 'Falha ao instalar o yt-dlp.' }
+    $engine = Invoke-NativeResult $venvPython @('-I', '-m', 'pip', 'install', '--upgrade', 'yt-dlp[default]')
+    $engine.Output | ForEach-Object { Write-Host $_ }
+    if ($engine.Code -ne 0) { throw 'Falha ao instalar o yt-dlp.' }
 
     New-Item -ItemType Directory -Path 'tools' -Force | Out-Null
     $ffmpeg = Get-Command ffmpeg.exe -ErrorAction SilentlyContinue

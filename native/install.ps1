@@ -6,11 +6,15 @@ $data = Join-Path $env:LOCALAPPDATA 'Sonora'
 $staging = Join-Path $PSScriptRoot 'stage'
 $backup = Join-Path $PSScriptRoot 'backup'
 $lock = $null
+$transcript = $false
 $applied = [Collections.Generic.List[object]]::new()
 
 try {
     Write-Host 'Instalando o Sonora para esta conta do Windows...'
     New-Item -ItemType Directory -Path $data, $target -Force | Out-Null
+    $log = Join-Path $data 'instalacao.log'
+    Start-Transcript -LiteralPath $log -Force | Out-Null
+    $transcript = $true
     $lock = [IO.File]::Open((Join-Path $data 'instance.lock'), 'OpenOrCreate', 'ReadWrite', 'ReadWrite')
     try {
         $lock.Lock(0, 1)
@@ -45,9 +49,7 @@ try {
             Copy-Item -LiteralPath $file.FullName -Destination $destination -Force
         }
     }
-    if (-not (Test-Path -LiteralPath (Join-Path $target '.pronto'))) {
-        & (Join-Path $target 'Preparar.ps1') -InstallPython
-    }
+    & (Join-Path $target 'Preparar.ps1') -InstallPython
     & (Join-Path $target 'Criar_Atalhos.ps1')
     $applied.Clear()
     Write-Host 'Sonora instalado. Abrindo o aplicativo...'
@@ -62,10 +64,12 @@ try {
         }
     }
     Write-Host $message -ForegroundColor Red
+    if ($transcript) { Write-Host "Log completo: $log" }
     Read-Host 'Pressione Enter para fechar' | Out-Null
     exit 2
 } finally {
     if ($lock) { $lock.Dispose() }
+    if ($transcript) { Stop-Transcript | Out-Null }
     Remove-Item -LiteralPath $staging, $backup -Recurse -Force -ErrorAction SilentlyContinue
 }
 Start-Process -FilePath (Join-Path $target 'Sonora.exe') -WorkingDirectory $target

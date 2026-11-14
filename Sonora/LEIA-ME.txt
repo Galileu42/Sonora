@@ -17,25 +17,19 @@ COMO ABRIR O PACOTE PORTÁTIL
    Caso já use FFmpeg no CortaLab, o Sonora aproveita o par FFmpeg e
    FFprobe se ambos estiverem na mesma pasta e o FFmpeg estiver no PATH.
 
-ATUALIZAÇÃO
-Para migrar da 1.2.0, extraia este ZIP completo com o app fechado.
-A partir da 1.3.0, a atualização automática também atualiza Sonora.exe.
-Feche o Sonora antes de atualizar. Extraia o ZIP e substitua os arquivos
-na pasta atual do Sonora, mantendo a estrutura do ZIP. A fila e o
-histórico são guardados separadamente dos arquivos do aplicativo.
+ATUALIZAÇÃO PELA JANELA DO SONORA
+Quando houver uma versão nova, o Sonora baixa e valida o pacote
+em segundo plano. Clique em Atualizar e reiniciar para instalar
+a versão e abrir o app automaticamente. Você também pode fechar
+o app normalmente para aplicar um pacote já baixado.
 
-ATUALIZAÇÕES AUTOMÁTICAS PELO GITHUB
-No Sonora, clique em Atualizações. Informe o repositório público do
-projeto no formato dono/repositorio e clique em Salvar e verificar.
-Só configure um repositório de um mantenedor de confiança. Apague
-o endereço para desativar a consulta automática.
-
+Em Atualizações, confira se o repositório é Galileu42/Sonora.
 O Sonora consulta o GitHub ao abrir e a cada seis horas enquanto
-estiver aberto. Se houver uma versão nova, o pacote é baixado e
-validado em segundo plano. Feche o Sonora para instalar, aguarde
-alguns segundos e abra de novo para conferir a versão. A fila, os
-downloads, o ambiente Python e as ferramentas ficam em seus lugares.
+estiver aberto. A fila, os downloads e o histórico são preservados.
 Atualizar_Motor.cmd atualiza o yt-dlp separadamente.
+
+Se o instalador falhar, o diagnóstico completo fica em
+%LOCALAPPDATA%/Sonora/instalacao.log.
 
 PUBLICAR UMA VERSÃO
 1. Coloque o código em um repositório público do GitHub dedicado ao Sonora.
