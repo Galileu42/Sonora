@@ -1,0 +1,91 @@
+SONORA
+Downloads e conversão de áudio e vídeo do YouTube
+
+COMO ABRIR
+1. Extraia o ZIP inteiro para uma pasta de sua preferência.
+2. Tenha Python 3.10 ou superior instalado com Tcl/Tk e o inicializador
+   “py”. Download: https://www.python.org/downloads/windows/
+3. Clique duas vezes em Abrir_Sonora.cmd. Na primeira abertura, será
+   necessária conexão para instalar o yt-dlp e, se ausentes, FFmpeg
+   e Deno. O pacote foi preparado para Windows 10/11 de 64 bits (x64).
+   Caso já use FFmpeg no CortaLab, o Sonora aproveita o par FFmpeg e
+   FFprobe se ambos estiverem na mesma pasta e o FFmpeg estiver no PATH.
+
+ATUALIZAÇÃO
+Feche o Sonora antes de atualizar. Extraia o ZIP e substitua os arquivos
+na pasta atual do Sonora, mantendo a estrutura do ZIP. A fila e o
+histórico são guardados separadamente dos arquivos do aplicativo.
+
+ATUALIZAÇÕES AUTOMÁTICAS PELO GITHUB
+No Sonora, clique em Atualizações. Informe o repositório público do
+projeto no formato dono/repositorio e clique em Salvar e verificar.
+Só configure um repositório de um mantenedor de confiança. Apague
+o endereço para desativar a consulta automática.
+
+O Sonora consulta o GitHub ao abrir e a cada seis horas enquanto
+estiver aberto. Se houver uma versão nova, o pacote é baixado e
+validado em segundo plano. Feche o Sonora para instalar, aguarde
+alguns segundos e abra de novo para conferir a versão. A fila, os
+downloads, o ambiente Python e as ferramentas ficam em seus lugares.
+Atualizar_Motor.cmd atualiza o yt-dlp separadamente.
+
+PUBLICAR UMA VERSÃO
+1. Coloque o código em um repositório público do GitHub dedicado ao Sonora.
+2. Ajuste VERSION em updater.py e crie uma tag correspondente, por
+   exemplo v1.3.0. Use três números e mantenha a versão do ZIP igual à tag.
+3. Compacte a pasta Sonora com os arquivos do aplicativo em
+   Sonora_Windows.zip, conservando a pasta Sonora no primeiro nível.
+   Exclua .venv, tools, caches e arquivos de dados do usuário.
+4. Publique uma release estável com essa tag e anexe Sonora_Windows.zip
+   em Assets. O ZIP automático do código-fonte é um arquivo separado.
+
+ATALHOS NO WINDOWS
+Abra Abrir_Sonora.cmd. Na primeira abertura desta versão, os atalhos
+Sonora serão criados na área de trabalho e no menu Iniciar.
+O Sonora usa seu próprio ícone na barra de tarefas quando aberto.
+Para manter o ícone após fechar o app, pesquise Sonora no menu Iniciar,
+clique com o botão direito e escolha “Fixar na barra de tarefas”.
+O item também pode aparecer no menu do ícone com a janela aberta.
+Se mover a pasta do aplicativo, execute Criar_Atalhos.cmd de novo.
+
+COMO USAR
+Cole links de vídeos, Shorts, YouTube Music ou playlists. Escolha o
+formato, a qualidade e a pasta. Clique em Adicionar à fila e Iniciar fila.
+Um link direto de playlist é expandido automaticamente. Marque
+“Incluir todos os vídeos da playlist” para expandir também um link
+de vídeo que pertença a uma playlist. Cada vídeo vira um item próprio.
+
+Use “Ver formatos e tamanhos” para analisar o primeiro link de vídeo.
+A tabela mostra as faixas disponíveis, resolução, FPS, codec e tamanho
+quando disponível. Valores precedidos de ≈ são estimativas. Selecione
+várias linhas com Ctrl ou Shift para baixar mais de uma versão.
+Faixas apenas de vídeo ganham áudio em MKV. O tamanho exibido para
+essas linhas é o da faixa de vídeo, antes de somar o áudio.
+
+Áudio: MP3, M4A/AAC, Opus, OGG/Vorbis, FLAC, WAV e faixa original.
+MP3, M4A, Opus e OGG aceitam alvos de 32 a 320 kbps. O tamanho mostrado
+é estimado. OGG em 32, 40 e 48 kbps sai em mono. Os demais formatos
+oferecem a opção Máxima disponível. A opção Original conserva o áudio
+da melhor faixa disponível. FLAC e WAV preservam o áudio decodificado.
+Aumentar a taxa de saída não recupera detalhes perdidos na fonte.
+
+Vídeo: MP4, MKV e WebM. Escolha um limite de resolução ou a maior
+resolução disponível para o formato. Alguns MP4 de alta resolução
+preservam codecs como AV1 e podem exigir um player compatível.
+
+A fila é salva no computador. “Pausar fila” deixa o item atual terminar
+e impede que o próximo comece. “Cancelar atual” interrompe o item; use
+“Tentar novamente” para recolocá-lo na fila. Duplo clique abre o arquivo
+pronto ou mostra o erro. Os detalhes técnicos podem ser copiados.
+Ctrl+Enter adiciona os links à fila. Downloads iguais recebem sufixos numéricos.
+
+Se a consulta ou os downloads começarem a falhar, feche o aplicativo e
+execute Atualizar_Motor.cmd para atualizar o yt-dlp e seus componentes.
+A disponibilidade depende de cada link e das respostas do YouTube.
+Baixe conteúdo próprio ou para o qual você tenha autorização.
+
+COMPONENTES
+https://github.com/yt-dlp/yt-dlp
+https://github.com/yt-dlp/yt-dlp/wiki/EJS
+https://www.gyan.dev/ffmpeg/builds/
+https://github.com/denoland/deno

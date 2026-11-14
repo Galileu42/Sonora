@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+.venv/
+tools/
+.pronto
+.atalhos-v2
+.sonora-update-*/

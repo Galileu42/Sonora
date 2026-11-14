@@ -1,0 +1,53 @@
+name: Publicar Sonora para Windows
+
+on:
+  push:
+    branches: [main]
+    paths: [Sonora/updater.py]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sonora-windows-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Empacotar a versão
+        id: package
+        run: |
+          python3 - <<'PY'
+          import sys
+          from pathlib import Path
+          from zipfile import ZIP_DEFLATED, ZipFile
+
+          sys.path.insert(0, "Sonora")
+          from updater import FILES, VERSION, version_tuple
+
+          version_tuple(VERSION)
+          with ZipFile("Sonora_Windows.zip", "w", ZIP_DEFLATED) as archive:
+              for name in sorted(FILES):
+                  path = Path("Sonora", name)
+                  archive.write(path, path.as_posix())
+          with open(__import__("os").environ["GITHUB_OUTPUT"], "a") as output:
+              print(f"tag=v{VERSION}", file=output)
+          PY
+      - name: Publicar no GitHub Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.package.outputs.tag }}
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "A versão $TAG já tem uma release."
+            exit 0
+          fi
+          gh release create "$TAG" Sonora_Windows.zip \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "Sonora $TAG" --generate-notes
