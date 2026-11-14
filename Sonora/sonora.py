@@ -38,40 +38,6 @@ def open_path(path):
         subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", str(path)])
 
 
-def set_windows_frame(window):
-    """Apply branding to Tk's outer Win32 window, which owns the title bar."""
-    if os.name != "nt":
-        return
-    import ctypes as ct
-    from ctypes import wintypes as wt
-
-    user = ct.windll.user32
-    user.GetAncestor.argtypes = (wt.HWND, wt.UINT)
-    user.GetAncestor.restype = wt.HWND
-    user.LoadImageW.argtypes = (wt.HINSTANCE, wt.LPCWSTR, wt.UINT, ct.c_int, ct.c_int, wt.UINT)
-    user.LoadImageW.restype = wt.HANDLE
-    user.SendMessageW.argtypes = (wt.HWND, wt.UINT, wt.WPARAM, wt.LPARAM)
-    user.SendMessageW.restype = wt.LPARAM
-    frame = user.GetAncestor(window.winfo_id(), 2)  # GA_ROOT
-    if not frame:
-        return
-    if not hasattr(window, "_sonora_icons"):
-        window._sonora_icons = []
-        for kind, x, y in ((0, 49, 50), (1, 11, 12)):  # ICON_SMALL, ICON_BIG
-            icon = user.LoadImageW(None, str(ASSETS / "sonora.ico"), 1,
-                                   user.GetSystemMetrics(x), user.GetSystemMetrics(y), 0x10)
-            if icon:
-                window._sonora_icons.append((kind, icon))
-    for kind, icon in window._sonora_icons:
-        user.SendMessageW(frame, 0x0080, kind, icon)  # WM_SETICON
-
-    dark = ct.c_int(1)
-    dwm = ct.windll.dwmapi.DwmSetWindowAttribute
-    dwm.argtypes = (wt.HWND, wt.DWORD, ct.c_void_p, wt.DWORD)
-    if dwm(frame, 20, ct.byref(dark), ct.sizeof(dark)) != 0:
-        dwm(frame, 19, ct.byref(dark), ct.sizeof(dark))
-
-
 class Sonora:
     def __init__(self, root):
         self.root = root
@@ -85,9 +51,6 @@ class Sonora:
                            f"{max(height, min(round(730 * scale), self.root.winfo_screenheight() - 110))}")
         self.window_icon = tk.PhotoImage(file=ASSETS / "sonora.png")
         self.root.iconphoto(True, self.window_icon)
-        if os.name == "nt" and not SAFE_START:
-            self.root.iconbitmap(str(ASSETS / "sonora.ico"))
-            self.root.bind("<Map>", self.on_window_map, add="+")
         self.root.configure(bg=BG)
         self.root.protocol("WM_DELETE_WINDOW", self.close)
         self.events = Queue()
@@ -125,10 +88,6 @@ class Sonora:
         self.root.after(5000 if SAFE_START else 1500, self.check_updates)
         self.root.after(200, self.report_update_error)
         self.root.after(80, signal_startup_ready)
-
-    def on_window_map(self, event):
-        if event.widget is self.root:
-            self.root.after_idle(lambda: set_windows_frame(self.root))
 
     def style(self):
         style = ttk.Style(self.root)
@@ -171,8 +130,7 @@ class Sonora:
         style.configure("Vertical.TScrollbar", background="#414d62", troughcolor=BG,
                         bordercolor=BG, lightcolor="#414d62", darkcolor="#414d62", borderwidth=0, width=9)
         style.map("Vertical.TScrollbar", background=[("active", "#536682")])
-        if not SAFE_START:
-            self.rounded_styles(style)
+        self.rounded_styles(style)
 
     def surface(self, fill, radius, outline=None, chevron=False):
         """Draw a transparent, antialiased surface for Tk's stretchable elements."""
