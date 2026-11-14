@@ -50,6 +50,7 @@ def open_path(path):
 class Sonora:
     def __init__(self, root):
         self.root = root
+        log_startup("Preparando a janela")
         self.root.title("Sonora")
         self.scale = max(1, self.root.winfo_fpixels("1i") / 96)
         scale = self.scale
@@ -63,6 +64,7 @@ class Sonora:
         self.root.configure(bg=BG)
         self.root.protocol("WM_DELETE_WINDOW", self.close)
         self.events = Queue()
+        log_startup("Lendo a fila e as configurações")
         state = media.load_state()
         settings = state["settings"]
         self.jobs = state["jobs"]
@@ -93,22 +95,22 @@ class Sonora:
         self.update_after_job = False
         self.update_status = tk.StringVar(value=f"Versão {updater.VERSION}")
         self.update_dialog_window = None
+        log_startup("Configurando o tema")
         self.style()
+        log_startup("Criando os controles")
         self.build()
         self.update_options()
+        log_startup("Montando a fila")
         self.refresh()
         self.root.after(70, self.poll)
         self.root.after(5000 if SAFE_START else 1500, self.check_updates)
         self.root.after(200, self.report_update_error)
-        self.root.after_idle(self.startup_ready)
-
-    def startup_ready(self):
-        self.root.after(0, signal_startup_ready)
+        self.root.after_idle(signal_startup_ready)
 
     def style(self):
         style = ttk.Style(self.root)
         style.theme_use("clam")
-        family = "Nunito" if "nunito" in {name.casefold() for name in tkfont.families(self.root)} else FONT
+        family = FONT
         self.fonts = [tkfont.Font(self.root, name=font_name(size, weight), family=family, size=size, weight=weight)
                       for size, weight in FONT_STYLES]
         for name in ("TkDefaultFont", "TkTextFont", "TkHeadingFont", "TkMenuFont"):
@@ -143,7 +145,13 @@ class Sonora:
         style.configure("Treeview.Heading", background=FIELD, foreground=MUTED, relief="flat",
                         padding=(10, 8), font=font_name(10, "bold"))
         style.map("Treeview", background=[("selected", "#304672")], foreground=[("selected", INK)])
-        self.rounded_styles(style)
+        if SAFE_START:
+            style.configure("Card.TFrame", background=PANEL)
+            style.configure("Link.TFrame", background=BG)
+            style.configure("Horizontal.TProgressbar", background=ACCENT, troughcolor=FIELD)
+            style.map("TButton", background=[("disabled", PANEL), ("active", "#384456")])
+        else:
+            self.rounded_styles(style)
 
     def surface(self, fill, radius, outline=None, chevron=False):
         """Draw a transparent, antialiased surface for Tk's stretchable elements."""
@@ -985,13 +993,23 @@ class Sonora:
             Thread(target=self.lookup.stop, daemon=True).start()
 
 
-def signal_startup_ready():
+def log_startup(stage):
+    try:
+        with (media.DATA / "erro-sonora.log").open("a", encoding="utf-8") as log:
+            log.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} | {updater.VERSION} | {stage}\n")
+    except OSError:
+        pass
+
+
+def signal_startup_ready(ready=True):
+    if ready:
+        log_startup("Interface respondeu aos eventos de abertura")
+    faulthandler.cancel_dump_traceback_later()
     handle = os.environ.pop("SONORA_STARTUP_EVENT", None)
-    if handle:
-        faulthandler.cancel_dump_traceback_later()
-        if os.name == "nt":
-            import ctypes
-            ctypes.windll.kernel32.SetEvent(ctypes.c_void_p(int(handle)))
+    if handle and os.name == "nt":
+        import ctypes
+
+        ctypes.windll.kernel32.SetEvent(ctypes.c_void_p(int(handle)))
 
 
 def main():
@@ -1017,7 +1035,8 @@ def main():
                 import fcntl
                 fcntl.flock(instance, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:
-            signal_startup_ready()
+            log_startup("A trava da instância está ocupada")
+            signal_startup_ready(ready=False)
             window = tk.Tk()
             window.withdraw()
             messagebox.showinfo("Sonora", "O Sonora já está aberto.", parent=window)
@@ -1026,9 +1045,7 @@ def main():
 
 
 def run_with_startup_diagnostics():
-    if not os.environ.get("SONORA_STARTUP_EVENT"):
-        run_interface()
-        return
+    log_startup(f"Modo: {'compatibilidade' if SAFE_START else 'normal'}")
     try:
         log = (media.DATA / "erro-sonora.log").open("a", encoding="utf-8")
     except OSError:
@@ -1049,6 +1066,7 @@ def run_interface():
         with log_path.open("a", encoding="utf-8") as log:
             traceback.print_exception(error_type, error, stack, file=log)
 
+    log_startup("Inicializando o Tk")
     try:
         window = tk.Tk()
     except Exception:
@@ -1060,7 +1078,7 @@ def run_interface():
         Sonora(window)
     except Exception:
         report_error(*sys.exc_info())
-        signal_startup_ready()
+        signal_startup_ready(ready=False)
         window.withdraw()
         messagebox.showerror("Sonora", f"Falha ao abrir o aplicativo. Consulte o diagnóstico em:\n{log_path}",
                              parent=window)
