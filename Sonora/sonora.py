@@ -28,6 +28,14 @@ ASSETS = media.ROOT / "assets"
 APP_ID = "Sonora.Windows.Desktop"
 SAFE_START = "--safe-start" in sys.argv
 FONT = "Segoe UI" if os.name == "nt" else "DejaVu Sans"
+FONT_STYLES = ((9, "normal"), (9, "bold"), (10, "normal"), (10, "bold"),
+               (11, "normal"), (11, "bold"), (14, "bold"), (15, "bold"), (20, "bold"))
+
+
+def font_name(size, weight="normal"):
+    return f"SonoraFont{size}{weight}"
+
+
 DEFAULT_FOLDER = str(Path.home() / "Downloads" / "Sonora")
 
 
@@ -58,6 +66,10 @@ class Sonora:
         settings = state["settings"]
         self.jobs = state["jobs"]
         self.queue_filter = "Todos"
+        self.queue_rows = {}
+        self.jobs_by_id = {}
+        self.pending_count = 0
+        self.done_count = 0
         self.folder = tk.StringVar(value=settings.get("folder", DEFAULT_FOLDER))
         self.mode = tk.StringVar(value=settings.get("mode", "Áudio"))
         self.format = tk.StringVar(value=settings.get("format", "MP3"))
@@ -87,21 +99,32 @@ class Sonora:
         self.root.after(70, self.poll)
         self.root.after(5000 if SAFE_START else 1500, self.check_updates)
         self.root.after(200, self.report_update_error)
-        self.root.after(80, signal_startup_ready)
+        self.root.after(120, self.finish_startup)
+
+    def finish_startup(self):
+        try:
+            if os.name == "nt" and not SAFE_START:
+                self.enable_rounded_font()
+        finally:
+            signal_startup_ready()
 
     def style(self):
         style = ttk.Style(self.root)
         style.theme_use("clam")
+        self.fonts = [tkfont.Font(self.root, name=font_name(size, weight), family=FONT, size=size, weight=weight)
+                      for size, weight in FONT_STYLES]
         for name in ("TkDefaultFont", "TkTextFont", "TkHeadingFont", "TkMenuFont"):
-            tkfont.nametofont(name, self.root).configure(family=FONT, size=11)
+            native_font = tkfont.nametofont(name, self.root)
+            native_font.configure(family=FONT, size=11)
+            self.fonts.append(native_font)
         self.root.option_add("*TCombobox*Listbox.font", "TkTextFont")
-        style.configure(".", background=BG, foreground=INK, font=(FONT, 11))
+        style.configure(".", background=BG, foreground=INK, font=font_name(11))
         style.configure("TButton", padding=(12, 7), background=FIELD, borderwidth=0,
                         focuscolor=ACCENT, focusthickness=1)
         style.map("TButton", foreground=[("disabled", "#9aa6b9")])
-        style.configure("Primary.TButton", background=BLUE, foreground="#ffffff", font=(FONT, 11, "bold"))
+        style.configure("Primary.TButton", background=BLUE, foreground="#ffffff", font=font_name(11, "bold"))
         style.configure("Selected.TButton", background="#294878", foreground="#edf3ff",
-                        font=(FONT, 11, "bold"))
+                        font=font_name(11, "bold"))
         style.configure("Queue.TButton", padding=(9, 4), background=PANEL, foreground=MUTED)
         style.configure("QueueSelected.TButton", padding=(9, 4), background="#293a54", foreground=ACCENT)
         style.configure("TCheckbutton", background=PANEL, indicatorbackground=FIELD, padding=(0, 3))
@@ -120,20 +143,62 @@ class Sonora:
         style.configure("Treeview", background=BG, fieldbackground=BG, foreground=INK,
                         borderwidth=0, rowheight=max(36, round(self.root.winfo_fpixels("0.37i"))))
         style.configure("Treeview.Heading", background=FIELD, foreground=MUTED, relief="flat",
-                        padding=(10, 8), font=(FONT, 10, "bold"))
+                        padding=(10, 8), font=font_name(10, "bold"))
         style.map("Treeview", background=[("selected", "#304672")], foreground=[("selected", INK)])
-        style.layout("Vertical.TScrollbar", [
-            ("Vertical.Scrollbar.trough", {"sticky": "ns", "children": [
-                ("Vertical.Scrollbar.thumb", {"expand": 1, "sticky": "nswe"}),
-            ]}),
-        ])
-        style.configure("Vertical.TScrollbar", background="#414d62", troughcolor=BG,
-                        bordercolor=BG, lightcolor="#414d62", darkcolor="#414d62", borderwidth=0, width=9)
-        style.map("Vertical.TScrollbar", background=[("active", "#536682")])
         self.rounded_styles(style)
+
+    def enable_rounded_font(self):
+        # Keep the first paint independent of font loading.
+        if self.closing:
+            return
+        import ctypes as ct
+        from ctypes import wintypes as wt
+
+        add = ct.windll.gdi32.AddFontMemResourceEx
+        add.argtypes = (ct.c_void_p, wt.DWORD, ct.c_void_p, ct.POINTER(wt.DWORD))
+        add.restype = wt.HANDLE
+        kernel = ct.windll.kernel32
+        kernel.FindResourceW.argtypes = (wt.HMODULE, ct.c_void_p, ct.c_void_p)
+        kernel.FindResourceW.restype = wt.HANDLE
+        kernel.LoadResource.argtypes = (wt.HMODULE, wt.HANDLE)
+        kernel.LoadResource.restype = wt.HANDLE
+        kernel.SizeofResource.argtypes = (wt.HMODULE, wt.HANDLE)
+        kernel.SizeofResource.restype = wt.DWORD
+        kernel.LockResource.argtypes = (wt.HANDLE,)
+        kernel.LockResource.restype = ct.c_void_p
+
+        handles = []
+        for resource_id in (301, 302):
+            resource = kernel.FindResourceW(None, resource_id, 10)
+            if not resource:
+                break
+            size = kernel.SizeofResource(None, resource)
+            loaded = kernel.LoadResource(None, resource)
+            data = kernel.LockResource(loaded) if loaded else None
+            if not data or not size:
+                break
+            count = wt.DWORD()
+            handle = add(data, size, None, ct.byref(count))
+            if not handle:
+                break
+            handles.append(handle)
+        if len(handles) == 2:
+            for font in self.fonts:
+                font.configure(family="Nunito")
+            if self.fonts[0].actual("family").casefold() == "nunito":
+                return
+            for font in self.fonts:
+                font.configure(family=FONT)
+        remove = ct.windll.gdi32.RemoveFontMemResourceEx
+        remove.argtypes = (wt.HANDLE,)
+        for handle in handles:
+            remove(handle)
 
     def surface(self, fill, radius, outline=None, chevron=False):
         """Draw a transparent, antialiased surface for Tk's stretchable elements."""
+        key = (fill, radius, outline, chevron)
+        if key in self.style_images:
+            return self.style_images[key]
         from base64 import b64encode
         from struct import pack
         import zlib
@@ -171,11 +236,11 @@ class Sonora:
         png += chunk(b"IHDR", pack(">IIBBBBB", size, size, 8, 6, 0, 0, 0))
         png += chunk(b"IDAT", zlib.compress(pixels)) + chunk(b"IEND", b"")
         image = tk.PhotoImage(master=self.root, data=b64encode(png))
-        self.style_images.append(image)
+        self.style_images[key] = image
         return image
 
     def rounded_styles(self, style):
-        self.style_images = []
+        self.style_images = {}
         control = round(9 * self.scale)
         panel = round(15 * self.scale)
         pill = round(13 * self.scale)
@@ -209,6 +274,17 @@ class Sonora:
                 ]}),
             ]})])
 
+        scroll_radius = max(3, round(4 * self.scale))
+        scroll_track = self.surface(BG, scroll_radius)
+        scroll_thumb = self.surface("#445169", scroll_radius)
+        scroll_hover = self.surface("#596a86", scroll_radius)
+        style.element_create("Sonora.Scrollbar.trough", "image", scroll_track, width=9, height=1,
+                             border=scroll_radius, sticky="nswe")
+        style.element_create("Sonora.Scrollbar.thumb", "image", scroll_thumb, ("active", scroll_hover),
+                             width=9, height=18, border=scroll_radius, sticky="nswe")
+        style.layout("Vertical.TScrollbar", [("Sonora.Scrollbar.trough", {"sticky": "ns", "children": [
+            ("Sonora.Scrollbar.thumb", {"expand": 1, "sticky": "nswe"}),
+        ]})])
         track = self.surface(FIELD, max(2, round(3 * self.scale)))
         fill = self.surface(ACCENT, max(2, round(3 * self.scale)))
         style.element_create("Sonora.Progress.trough", "image", track, border=3, width=1, height=7, sticky="nswe")
@@ -245,7 +321,7 @@ class Sonora:
         toolbar.pack(fill="x")
         self.brand = tk.PhotoImage(file=ASSETS / "marca.png")
         tk.Label(toolbar, image=self.brand, bg=PANEL).pack(side="left", padx=(0, 11))
-        tk.Label(toolbar, text="Sonora", bg=PANEL, fg=INK, font=(FONT, 20, "bold")).pack(side="left")
+        tk.Label(toolbar, text="Sonora", bg=PANEL, fg=INK, font=font_name(20, "bold")).pack(side="left")
         self.update_button = ttk.Button(toolbar, text="Atualizações", command=self.update_dialog)
         self.update_button.pack(side="right")
         ttk.Button(toolbar, text="Abrir pasta", command=self.open_folder).pack(side="right", padx=8)
@@ -253,12 +329,12 @@ class Sonora:
 
         status = tk.Frame(self.root, bg=PANEL, padx=17, pady=8)
         status.pack(side="bottom", fill="x")
-        tk.Label(status, text=f"Sonora {updater.VERSION}", bg=PANEL, fg=MUTED, font=(FONT, 9)).pack(side="right")
+        tk.Label(status, text=f"Sonora {updater.VERSION}", bg=PANEL, fg=MUTED, font=font_name(9)).pack(side="right")
         self.progress_label = tk.StringVar(value="0%")
         tk.Label(status, textvariable=self.progress_label, bg=PANEL, fg=ACCENT,
-                 font=(FONT, 9, "bold"), width=5).pack(side="right", padx=(6, 12))
+                 font=font_name(9, "bold"), width=5).pack(side="right", padx=(6, 12))
         ttk.Progressbar(status, variable=self.percent, maximum=100, length=130).pack(side="right")
-        tk.Label(status, textvariable=self.status, bg=PANEL, fg=MUTED, anchor="w", font=(FONT, 9)).pack(
+        tk.Label(status, textvariable=self.status, bg=PANEL, fg=MUTED, anchor="w", font=font_name(9)).pack(
             side="left", fill="x", expand=True
         )
         self.percent.trace_add("write", lambda *_: self.progress_label.set(f"{self.percent.get():.0f}%"))
@@ -287,9 +363,10 @@ class Sonora:
         self.quality_box = ttk.Combobox(sidebar, state="readonly", width=15)
         self.quality_box.pack(fill="x", pady=(5, 5))
         self.quality_box.bind("<<ComboboxSelected>>", self.set_quality)
-        note = tk.Label(sidebar, textvariable=self.summary, bg=FIELD, fg=ACCENT,
-                        font=(FONT, 10), wraplength=195, justify="left", anchor="w", height=2, padx=8)
-        note.pack(fill="x", pady=(3, 0))
+        note_panel = ttk.Frame(sidebar, style="Link.TFrame", padding=(9, 3))
+        note_panel.pack(fill="x", pady=(3, 0))
+        tk.Label(note_panel, textvariable=self.summary, bg=BG, fg=ACCENT, font=font_name(10),
+                 wraplength=max(175, round(195 * self.scale)), justify="left", anchor="w", height=2).pack(fill="x")
         tk.Frame(sidebar, bg=BORDER, height=1).pack(fill="x", pady=(13, 12))
         self.label(sidebar, "Pasta de destino").pack(anchor="w")
         ttk.Entry(sidebar, textvariable=self.folder, width=16).pack(fill="x", pady=(5, 7))
@@ -305,7 +382,7 @@ class Sonora:
         self.label(header, "YouTube, Shorts ou playlists. Cole um link por linha.").pack(anchor="w", pady=(3, 0))
         input_frame = ttk.Frame(links, style="Link.TFrame", padding=(7, 5))
         input_frame.pack(fill="x")
-        self.links = tk.Text(input_frame, height=3, width=1, wrap="word", font="TkTextFont", bg=BG, fg=INK,
+        self.links = tk.Text(input_frame, height=2, width=1, wrap="word", font="TkTextFont", bg=BG, fg=INK,
                              insertbackground=INK, highlightthickness=0, relief="flat",
                              padx=4, pady=3, undo=True)
         self.links.pack(fill="x")
@@ -350,7 +427,7 @@ class Sonora:
             self.action_buttons[key] = button
         self.clear_button = ttk.Button(footer, text="Limpar concluídos", command=self.clear_done)
         self.clear_button.pack(side="right")
-        table = tk.Frame(queue, bg=BG, highlightthickness=1, highlightbackground=BORDER)
+        table = ttk.Frame(queue, style="Link.TFrame", padding=(6, 4))
         table.pack(fill="both", expand=True)
         columns = (("title", "Título", 235), ("format", "Formato", 75),
                    ("quality", "Qualidade", 85), ("status", "Estado", 105))
@@ -359,10 +436,10 @@ class Sonora:
         self.tree.bind("<<TreeviewSelect>>", lambda _: self.update_controls())
         self.empty = tk.Frame(table, bg=BG)
         self.empty_title = tk.StringVar()
-        tk.Label(self.empty, textvariable=self.empty_title, bg=BG, fg=INK, font=(FONT, 15, "bold")).pack()
+        tk.Label(self.empty, textvariable=self.empty_title, bg=BG, fg=INK, font=font_name(15, "bold")).pack()
         self.empty_hint = tk.StringVar()
         tk.Label(self.empty, textvariable=self.empty_hint, bg=BG, fg=MUTED,
-                 font=(FONT, 10)).pack(pady=(5, 0))
+                 font=font_name(10)).pack(pady=(5, 0))
         self.tree.tag_configure("even", background="#191e28")
         self.tree.tag_configure(media.ACTIVE, foreground=ACCENT)
         self.tree.tag_configure(media.DONE, foreground="#a9e7cc")
@@ -383,7 +460,7 @@ class Sonora:
     @staticmethod
     def label(parent, text, variable=None, heading=False):
         return tk.Label(parent, text=text, textvariable=variable, bg=PANEL,
-                        fg=INK if heading else MUTED, font=(FONT, 14, "bold") if heading else (FONT, 10))
+                        fg=INK if heading else MUTED, font=font_name(14, "bold") if heading else font_name(10))
 
     @staticmethod
     def make_table(parent, columns, stretch):
@@ -488,8 +565,7 @@ class Sonora:
         self.next_job()
 
     def selected(self):
-        ids = set(self.tree.selection())
-        return [job for job in self.jobs if job.id in ids]
+        return [self.jobs_by_id[item] for item in self.tree.selection() if item in self.jobs_by_id]
 
     def clear_done(self):
         self.jobs[:] = [job for job in self.jobs if job.status != media.DONE]
@@ -527,16 +603,18 @@ class Sonora:
         dialog.title(title)
         dialog.configure(bg=BG)
         dialog.transient(self.root)
-        pane = tk.Frame(dialog, bg=BG, padx=15, pady=13)
-        pane.pack(fill="both", expand=True)
-        tk.Label(pane, text=hint or media.error_hint(details), bg=BG, fg=INK,
-                 anchor="w", justify="left", wraplength=510, font=(FONT, 11, "bold")).pack(fill="x")
-        body = tk.Text(pane, height=9, width=58, wrap="word", bg=FIELD, fg=INK,
-                       relief="flat", padx=8, pady=6, font=(FONT, 9))
+        pane = self.card(dialog)
+        pane.pack(fill="both", expand=True, padx=7, pady=7)
+        tk.Label(pane, text=hint or media.error_hint(details), bg=PANEL, fg=INK,
+                 anchor="w", justify="left", wraplength=510, font=font_name(11, "bold")).pack(fill="x")
+        body_panel = ttk.Frame(pane, style="Link.TFrame", padding=(6, 4))
+        body_panel.pack(fill="both", expand=True, pady=(9, 8))
+        body = tk.Text(body_panel, height=9, width=58, wrap="word", bg=BG, fg=INK,
+                       relief="flat", padx=8, pady=6, font=font_name(9))
         body.insert("1.0", details)
         body.configure(state="disabled")
-        body.pack(fill="both", expand=True, pady=(9, 8))
-        buttons = tk.Frame(pane, bg=BG)
+        body.pack(fill="both", expand=True)
+        buttons = tk.Frame(pane, bg=PANEL)
         buttons.pack(fill="x")
 
         def copy():
@@ -554,37 +632,46 @@ class Sonora:
         self.refresh()
 
     def refresh(self):
-        selected = set(self.tree.selection())
-        children = self.tree.get_children()
-        if children:
-            self.tree.delete(*children)
         statuses = {
             "Pendentes": {media.PENDING, media.ACTIVE},
             "Concluídos": {media.DONE},
             "Falhas": {media.FAILED, media.STOPPED},
         }.get(self.queue_filter)
+        self.jobs_by_id = {job.id: job for job in self.jobs}
         visible = [job for job in self.jobs if statuses is None or job.status in statuses]
+        children = tuple(job.id for job in visible)
+        removed = self.queue_rows.keys() - self.jobs_by_id.keys()
+        if removed:
+            self.tree.delete(*removed)
+            for item in removed:
+                del self.queue_rows[item]
         for name, button in self.filter_buttons.items():
-            button.configure(style="QueueSelected.TButton" if name == self.queue_filter else "Queue.TButton")
+            style = "QueueSelected.TButton" if name == self.queue_filter else "Queue.TButton"
+            if button.cget("style") != style:
+                button.configure(style=style)
         for index, job in enumerate(visible):
             quality = job.quality
             if job.mode == "Áudio" and quality.isdigit():
                 quality += " kbps"
             fmt = ("Faixa " + quality) if job.mode == "Faixa nativa" else job.format
-            self.tree.insert("", "end", iid=job.id, values=(
-                job.title or job.url, fmt, quality, job.status
-            ), tags=(job.status, "even") if index % 2 == 0 else (job.status,))
-            if job.id in selected:
-                self.tree.selection_add(job.id)
+            values = (job.title or job.url, fmt, quality, job.status)
+            tags = (job.status, "even") if index % 2 == 0 else (job.status,)
+            if job.id not in self.queue_rows:
+                self.tree.insert("", "end", iid=job.id, values=values, tags=tags)
+            elif self.queue_rows[job.id] != (values, tags):
+                self.tree.item(job.id, values=values, tags=tags)
+            self.queue_rows[job.id] = (values, tags)
+        if self.tree.get_children() != children:
+            self.tree.set_children("", *children)
         if visible:
             self.empty.place_forget()
         else:
             self.empty_title.set("A fila está vazia" if self.queue_filter == "Todos" else "Nenhum item nesta lista")
             self.empty_hint.set("Cole um link do YouTube para começar." if self.queue_filter == "Todos" else "")
             self.empty.place(relx=0.5, rely=0.56, anchor="center")
-        pending = sum(job.status == media.PENDING for job in self.jobs)
-        done = sum(job.status == media.DONE for job in self.jobs)
-        self.counts.set(f"{pending} pend.  ·  {done} prontos")
+        self.pending_count = sum(job.status == media.PENDING for job in self.jobs)
+        self.done_count = sum(job.status == media.DONE for job in self.jobs)
+        self.counts.set(f"{self.pending_count} pend.  ·  {self.done_count} prontos")
         self.update_controls()
 
     def update_controls(self):
@@ -596,9 +683,9 @@ class Sonora:
         self.action_buttons["Remover"].state(["!disabled" if can_remove else "disabled"])
         can_cancel = self.active and not self.cancelling
         self.action_buttons["Cancelar atual"].state(["!disabled" if can_cancel else "disabled"])
-        can_start = self.running or any(job.status == media.PENDING for job in self.jobs)
+        can_start = self.running or self.pending_count
         self.start_button.state(["!disabled" if can_start else "disabled"])
-        self.clear_button.state(["!disabled" if any(job.status == media.DONE for job in self.jobs) else "disabled"])
+        self.clear_button.state(["!disabled" if self.done_count else "disabled"])
 
     def persist(self):
         try:
@@ -700,17 +787,19 @@ class Sonora:
         dialog.geometry(f"{min(1020, self.root.winfo_screenwidth() - 35)}x510")
         dialog.minsize(775, 370)
         dialog.transient(self.root)
-        pane = tk.Frame(dialog, bg=BG, padx=16, pady=14)
-        pane.pack(fill="both", expand=True)
-        tk.Label(pane, bg=BG, fg=INK, text=document.get("title") or url, font=(FONT, 14, "bold"),
+        pane = self.card(dialog)
+        pane.pack(fill="both", expand=True, padx=7, pady=7)
+        tk.Label(pane, bg=PANEL, fg=INK, text=document.get("title") or url, font=font_name(14, "bold"),
                  anchor="w", wraplength=720, justify="left").pack(fill="x", pady=(0, 8))
-        footer = tk.Frame(pane, bg=BG)
+        footer = tk.Frame(pane, bg=PANEL)
         footer.pack(side="bottom", fill="x", pady=(9, 0))
-        tk.Label(footer, bg=BG, fg=MUTED, text="¹ O tamanho listado é só da faixa de vídeo. O áudio é somado no MKV.",
-                 font=(FONT, 9)).pack(side="left")
+        tk.Label(footer, bg=PANEL, fg=MUTED, text="¹ O tamanho da faixa exclui o áudio anexado ao MKV.",
+                 font=font_name(9), wraplength=390, justify="left").pack(side="left")
         columns = (("id", "ID", 62), ("kind", "Tipo", 174), ("ext", "Formato", 73), ("res", "Resolução", 83),
                    ("fps", "FPS", 55), ("rate", "kbps", 65), ("size", "Tamanho", 104), ("codec", "Codec", 170))
-        tree = self.make_table(pane, columns, "codec")
+        table = ttk.Frame(pane, style="Link.TFrame", padding=(6, 4))
+        table.pack(fill="both", expand=True)
+        tree = self.make_table(table, columns, "codec")
         tree.tag_configure("even", background="#191e28")
         for index, row in enumerate(rows):
             tree.insert("", "end", values=row, tags=("even",) if index % 2 == 0 else ())
@@ -749,10 +838,10 @@ class Sonora:
         dialog = tk.Toplevel(self.root)
         self.update_dialog_window = dialog
         dialog.title("Atualizações do Sonora")
-        dialog.configure(bg=PANEL)
+        dialog.configure(bg=BG)
         dialog.transient(self.root)
         panel = self.card(dialog)
-        panel.pack(fill="both", expand=True)
+        panel.pack(fill="both", expand=True, padx=7, pady=7)
         self.label(panel, f"Sonora {updater.VERSION}", heading=True).pack(anchor="w")
         tk.Label(panel, textvariable=self.update_status, bg=PANEL, fg=MUTED, justify="left",
                  wraplength=380, anchor="w", width=49, height=3).pack(fill="x")
@@ -870,7 +959,11 @@ class Sonora:
                 self.percent.set(percent)
                 if stage == "Preparando" and details and job.title != details:
                     job.title = details
-                    self.refresh()
+                    if job.id in self.queue_rows:
+                        values, tags = self.queue_rows[job.id]
+                        values = (details, *values[1:])
+                        self.tree.item(job.id, values=values)
+                        self.queue_rows[job.id] = (values, tags)
                 baseline = job.title or job.url
                 text = details or baseline
                 self.status.set(f"{stage} · {text[:95] + '…' if len(text) > 95 else text}")

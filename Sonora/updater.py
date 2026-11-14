@@ -17,7 +17,7 @@ import time
 
 
 ROOT = Path(__file__).resolve().parent
-VERSION = "1.7.6"
+VERSION = "1.7.7"
 DEFAULT_REPO = "Galileu42/Sonora"
 ASSET = "Sonora_Windows.zip"
 MAX_BYTES = 20 * 1024 * 1024
@@ -26,7 +26,6 @@ FILES = {
     "LEIA-ME.txt", "Preparar.cmd", "Preparar.ps1", "engine.py", "sonora.py", "updater.py", "Sonora.exe",
     "assets/marca.png", "assets/sonora.ico", "assets/sonora.png",
 }
-
 
 def version_tuple(tag):
     if not isinstance(tag, str) or not re.fullmatch(r"v?\d{1,6}\.\d{1,6}\.\d{1,6}", tag):
