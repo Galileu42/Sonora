@@ -69,6 +69,52 @@ def set_windows_frame(window):
         dwm(frame, 19, ct.byref(dark), ct.sizeof(dark))
 
 
+def load_rounded_font(directory):
+    """Load the fonts carried by Sonora.exe for this process only."""
+    import ctypes as ct
+    from ctypes import wintypes as wt
+
+    kernel = ct.windll.kernel32
+    kernel.FindResourceW.argtypes = (wt.HMODULE, ct.c_void_p, ct.c_void_p)
+    kernel.FindResourceW.restype = wt.HANDLE
+    kernel.LoadResource.argtypes = (wt.HMODULE, wt.HANDLE)
+    kernel.LoadResource.restype = wt.HANDLE
+    kernel.SizeofResource.argtypes = (wt.HMODULE, wt.HANDLE)
+    kernel.SizeofResource.restype = wt.DWORD
+    kernel.LockResource.argtypes = (wt.HANDLE,)
+    kernel.LockResource.restype = ct.c_void_p
+    add = ct.windll.gdi32.AddFontResourceExW
+    add.argtypes = (wt.LPCWSTR, wt.DWORD, ct.c_void_p)
+    remove = ct.windll.gdi32.RemoveFontResourceExW
+    remove.argtypes = (wt.LPCWSTR, wt.DWORD, ct.c_void_p)
+    registered = []
+
+    def release():
+        for path in registered:
+            remove(str(path), 0x10, None)  # FR_PRIVATE
+
+    try:
+        for resource_id in (301, 302):
+            resource = kernel.FindResourceW(None, resource_id, 10)  # RT_RCDATA
+            if not resource:
+                break
+            size = kernel.SizeofResource(None, resource)
+            data = kernel.LockResource(kernel.LoadResource(None, resource))
+            if not data or not size:
+                break
+            path = directory / f"Sonora-{resource_id}.ttf"
+            path.write_bytes(ct.string_at(data, size))
+            if not add(str(path), 0x10, None):
+                break
+            registered.append(path)
+        if len(registered) == 2:
+            return release
+    except OSError:
+        pass
+    release()
+    return None
+
+
 class Sonora:
     def __init__(self, root):
         self.root = root
@@ -136,9 +182,9 @@ class Sonora:
         style.configure("TButton", padding=(12, 7), background=FIELD, borderwidth=0,
                         focuscolor=ACCENT, focusthickness=1)
         style.map("TButton", foreground=[("disabled", "#9aa6b9")])
-        style.configure("Primary.TButton", background=BLUE, foreground="#ffffff", font=(FONT, 10, "bold"))
+        style.configure("Primary.TButton", background=BLUE, foreground="#ffffff", font=(FONT, 11, "bold"))
         style.configure("Selected.TButton", background="#294878", foreground="#edf3ff",
-                        font=(FONT, 10, "bold"))
+                        font=(FONT, 11, "bold"))
         style.configure("Queue.TButton", padding=(9, 4), background=PANEL, foreground=MUTED)
         style.configure("QueueSelected.TButton", padding=(9, 4), background="#293a54", foreground=ACCENT)
         style.configure("TCheckbutton", background=PANEL, indicatorbackground=FIELD, padding=(0, 3))
@@ -989,7 +1035,6 @@ def main():
     if os.name == "nt":
         import ctypes
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_ID)
-    window = tk.Tk()
     media.DATA.mkdir(parents=True, exist_ok=True)
     with (media.DATA / "instance.lock").open("a+b") as instance:
         try:
@@ -1001,11 +1046,28 @@ def main():
                 import fcntl
                 fcntl.flock(instance, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:
+            window = tk.Tk()
             window.withdraw()
             messagebox.showinfo("Sonora", "O Sonora já está aberto.", parent=window)
         else:
+            run_interface()
+
+
+def run_interface():
+    global FONT
+    from tempfile import TemporaryDirectory
+
+    with TemporaryDirectory(prefix="sonora-fonts-") as directory:
+        release = load_rounded_font(Path(directory)) if os.name == "nt" else None
+        window = tk.Tk()
+        try:
+            if "nunito" in {family.casefold() for family in tkfont.families(window)}:
+                FONT = "Nunito"
             Sonora(window)
             window.mainloop()
+        finally:
+            if release:
+                release()
 
 
 if __name__ == "__main__":
