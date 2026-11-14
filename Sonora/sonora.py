@@ -3,6 +3,7 @@
 from pathlib import Path
 from queue import Empty, Queue
 from threading import Thread
+import faulthandler
 import os
 import re
 import subprocess
@@ -99,23 +100,20 @@ class Sonora:
         self.root.after(70, self.poll)
         self.root.after(5000 if SAFE_START else 1500, self.check_updates)
         self.root.after(200, self.report_update_error)
-        self.root.after(120, self.finish_startup)
+        self.root.after_idle(self.startup_ready)
 
-    def finish_startup(self):
-        try:
-            if os.name == "nt" and not SAFE_START:
-                self.enable_rounded_font()
-        finally:
-            signal_startup_ready()
+    def startup_ready(self):
+        self.root.after(0, signal_startup_ready)
 
     def style(self):
         style = ttk.Style(self.root)
         style.theme_use("clam")
-        self.fonts = [tkfont.Font(self.root, name=font_name(size, weight), family=FONT, size=size, weight=weight)
+        family = "Nunito" if "nunito" in {name.casefold() for name in tkfont.families(self.root)} else FONT
+        self.fonts = [tkfont.Font(self.root, name=font_name(size, weight), family=family, size=size, weight=weight)
                       for size, weight in FONT_STYLES]
         for name in ("TkDefaultFont", "TkTextFont", "TkHeadingFont", "TkMenuFont"):
             native_font = tkfont.nametofont(name, self.root)
-            native_font.configure(family=FONT, size=11)
+            native_font.configure(family=family, size=11)
             self.fonts.append(native_font)
         self.root.option_add("*TCombobox*Listbox.font", "TkTextFont")
         style.configure(".", background=BG, foreground=INK, font=font_name(11))
@@ -146,53 +144,6 @@ class Sonora:
                         padding=(10, 8), font=font_name(10, "bold"))
         style.map("Treeview", background=[("selected", "#304672")], foreground=[("selected", INK)])
         self.rounded_styles(style)
-
-    def enable_rounded_font(self):
-        # Keep the first paint independent of font loading.
-        if self.closing:
-            return
-        import ctypes as ct
-        from ctypes import wintypes as wt
-
-        add = ct.windll.gdi32.AddFontMemResourceEx
-        add.argtypes = (ct.c_void_p, wt.DWORD, ct.c_void_p, ct.POINTER(wt.DWORD))
-        add.restype = wt.HANDLE
-        kernel = ct.windll.kernel32
-        kernel.FindResourceW.argtypes = (wt.HMODULE, ct.c_void_p, ct.c_void_p)
-        kernel.FindResourceW.restype = wt.HANDLE
-        kernel.LoadResource.argtypes = (wt.HMODULE, wt.HANDLE)
-        kernel.LoadResource.restype = wt.HANDLE
-        kernel.SizeofResource.argtypes = (wt.HMODULE, wt.HANDLE)
-        kernel.SizeofResource.restype = wt.DWORD
-        kernel.LockResource.argtypes = (wt.HANDLE,)
-        kernel.LockResource.restype = ct.c_void_p
-
-        handles = []
-        for resource_id in (301, 302):
-            resource = kernel.FindResourceW(None, resource_id, 10)
-            if not resource:
-                break
-            size = kernel.SizeofResource(None, resource)
-            loaded = kernel.LoadResource(None, resource)
-            data = kernel.LockResource(loaded) if loaded else None
-            if not data or not size:
-                break
-            count = wt.DWORD()
-            handle = add(data, size, None, ct.byref(count))
-            if not handle:
-                break
-            handles.append(handle)
-        if len(handles) == 2:
-            for font in self.fonts:
-                font.configure(family="Nunito")
-            if self.fonts[0].actual("family").casefold() == "nunito":
-                return
-            for font in self.fonts:
-                font.configure(family=FONT)
-        remove = ct.windll.gdi32.RemoveFontMemResourceEx
-        remove.argtypes = (wt.HANDLE,)
-        for handle in handles:
-            remove(handle)
 
     def surface(self, fill, radius, outline=None, chevron=False):
         """Draw a transparent, antialiased surface for Tk's stretchable elements."""
@@ -1036,9 +987,11 @@ class Sonora:
 
 def signal_startup_ready():
     handle = os.environ.pop("SONORA_STARTUP_EVENT", None)
-    if os.name == "nt" and handle:
-        import ctypes
-        ctypes.windll.kernel32.SetEvent(ctypes.c_void_p(int(handle)))
+    if handle:
+        faulthandler.cancel_dump_traceback_later()
+        if os.name == "nt":
+            import ctypes
+            ctypes.windll.kernel32.SetEvent(ctypes.c_void_p(int(handle)))
 
 
 def main():
@@ -1069,16 +1022,38 @@ def main():
             window.withdraw()
             messagebox.showinfo("Sonora", "O Sonora já está aberto.", parent=window)
         else:
+            run_with_startup_diagnostics()
+
+
+def run_with_startup_diagnostics():
+    if not os.environ.get("SONORA_STARTUP_EVENT"):
+        run_interface()
+        return
+    try:
+        log = (media.DATA / "erro-sonora.log").open("a", encoding="utf-8")
+    except OSError:
+        run_interface()
+        return
+    with log:
+        faulthandler.dump_traceback_later(8, file=log)
+        try:
             run_interface()
+        finally:
+            faulthandler.cancel_dump_traceback_later()
 
 
 def run_interface():
-    window = tk.Tk()
     log_path = media.DATA / "erro-sonora.log"
 
     def report_error(error_type, error, stack):
         with log_path.open("a", encoding="utf-8") as log:
             traceback.print_exception(error_type, error, stack, file=log)
+
+    try:
+        window = tk.Tk()
+    except Exception:
+        report_error(*sys.exc_info())
+        raise
 
     window.report_callback_exception = report_error
     try:
