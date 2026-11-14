@@ -17,7 +17,7 @@ import time
 
 
 ROOT = Path(__file__).resolve().parent
-VERSION = "1.6.0"
+VERSION = "1.7.0"
 DEFAULT_REPO = "Galileu42/Sonora"
 ASSET = "Sonora_Windows.zip"
 MAX_BYTES = 20 * 1024 * 1024
@@ -112,11 +112,13 @@ def extract_package(archive, workspace, version):
             destination.write_bytes(package.read(f"Sonora/{name}"))
 
 
-def stage(repo):
+def stage(repo, on_download=None):
     release = latest_release(normalize_repo(repo))
     if release is None:
         return None
     version, url, size, checksum = release
+    if on_download:
+        on_download(version)
     staging = Path(tempfile.mkdtemp(prefix=".sonora-update-", dir=ROOT))
     try:
         package = staging / "release.zip"

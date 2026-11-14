@@ -106,11 +106,13 @@ class Sonora:
         self.running = False
         self.closing = False
         self.cancelling = False
-        self.update_repo = settings.get("update_repo", updater.DEFAULT_REPO)
+        self.update_repo = settings.get("update_repo") or updater.DEFAULT_REPO
         self.update_thread = None
         self.update_pending = None
         self.restart_after_update = False
+        self.update_after_job = False
         self.update_status = tk.StringVar(value=f"Versão {updater.VERSION}")
+        self.update_dialog_window = None
         self.style()
         self.build()
         self.update_options()
@@ -666,54 +668,53 @@ class Sonora:
     def update_dialog(self):
         if self.closing:
             return
+        if self.update_dialog_window and self.update_dialog_window.winfo_exists():
+            self.update_dialog_window.lift()
+            self.check_updates(manual=True)
+            return
         dialog = tk.Toplevel(self.root)
+        self.update_dialog_window = dialog
         dialog.title("Atualizações do Sonora")
         dialog.configure(bg=PANEL)
         dialog.transient(self.root)
         panel = self.card(dialog)
         panel.pack(fill="both", expand=True)
-        self.label(panel, "", self.update_status, heading=True).pack(anchor="w")
-        self.label(panel, "Repositório público do Sonora no GitHub (dono/repositorio)").pack(
-            anchor="w", pady=(9, 4)
-        )
-        value = tk.StringVar(value=self.update_repo)
-        entry = ttk.Entry(panel, textvariable=value, width=51)
-        entry.pack(fill="x")
-        tk.Label(panel, bg=PANEL, fg=MUTED, justify="left", wraplength=415,
-                 text="Quando houver uma versão nova, use Atualizar e reiniciar. "
-                      "Use um repositório seu ou de um mantenedor em quem você confia. "
-                      "Deixe o campo vazio para desativar.").pack(anchor="w", pady=(8, 10))
-
-        def save():
-            if self.update_thread is not None:
-                messagebox.showinfo("Atualizações", "Aguarde a consulta atual terminar.", parent=dialog)
-                return
-            try:
-                repo = updater.normalize_repo(value.get()) if value.get().strip() else ""
-            except ValueError as exc:
-                messagebox.showwarning("Atualizações", str(exc), parent=dialog)
-                return
-            if repo != self.update_repo and self.update_pending:
-                updater.discard(self.update_pending[1])
-                self.update_pending = None
-                self.refresh_update_button()
-            self.update_repo = repo
-            self.persist()
-            self.update_status.set(f"Versão {updater.VERSION}")
-            self.check_updates(manual=True)
-
-        ttk.Button(panel, text="Salvar e verificar", style="Primary.TButton", command=save).pack(anchor="e")
-        entry.focus_set()
+        self.label(panel, f"Sonora {updater.VERSION}", heading=True).pack(anchor="w")
+        tk.Label(panel, textvariable=self.update_status, bg=PANEL, fg=MUTED, justify="left",
+                 wraplength=380, anchor="w", width=49, height=3).pack(fill="x")
+        actions = tk.Frame(panel, bg=PANEL)
+        actions.pack(fill="x")
+        self.update_check_button = ttk.Button(actions, text="Verificar agora",
+                                              command=lambda: self.check_updates(manual=True))
+        self.update_check_button.pack(side="left")
+        self.update_install_button = ttk.Button(actions, text="Atualizar e reiniciar",
+                                                command=self.apply_update, style="Primary.TButton")
+        self.update_install_button.pack(side="right")
+        self.refresh_update_button()
+        self.check_updates(manual=True)
 
     def refresh_update_button(self):
-        self.update_button.configure(
-            text="Atualizar e reiniciar" if self.update_pending else "Atualizações",
-            command=self.apply_update if self.update_pending else self.update_dialog,
-            style="Primary.TButton" if self.update_pending else "TButton",
-        )
+        if self.update_after_job:
+            caption, command = "Aguardando download…", self.update_dialog
+        elif self.update_pending:
+            caption, command = "Atualizar e reiniciar", self.apply_update
+        else:
+            caption, command = "Atualizações", self.update_dialog
+        self.update_button.configure(text=caption, command=command,
+                                     style="Primary.TButton" if self.update_pending else "TButton")
+        if self.update_dialog_window and self.update_dialog_window.winfo_exists():
+            self.update_check_button.state(["disabled" if self.update_thread or self.update_pending else "!disabled"])
+            ready = self.update_pending and not self.update_after_job
+            self.update_install_button.state(["!disabled" if ready else "disabled"])
 
     def apply_update(self):
-        if self.update_pending and not self.closing:
+        if not self.update_pending or self.closing or self.update_after_job:
+            return
+        if self.active:
+            self.update_after_job = True
+            self.update_status.set("O Sonora vai atualizar assim que o download atual terminar.")
+            self.refresh_update_button()
+        else:
             self.close(restart=True)
 
     def check_updates(self, manual=False):
@@ -731,7 +732,7 @@ class Sonora:
 
         def work():
             try:
-                pending = updater.stage(repo)
+                pending = updater.stage(repo, on_download=lambda version: self.events.put(("update_download", version)))
             except Exception as error:
                 self.events.put(("update_error", updater.describe_error(error)))
             else:
@@ -739,6 +740,7 @@ class Sonora:
 
         self.update_thread = Thread(target=work, daemon=True)
         self.update_thread.start()
+        self.refresh_update_button()
 
     def report_update_error(self):
         path = media.DATA / "update_error.txt"
@@ -756,17 +758,20 @@ class Sonora:
                 event, data = self.events.get_nowait()
             except Empty:
                 break
+            if event == "update_download":
+                self.update_status.set(f"Baixando Sonora {data}…")
+                continue
             if event in {"update_ready", "update_error"}:
                 self.update_thread = None
                 if event == "update_error":
                     self.update_status.set(data)
                 elif data:
                     self.update_pending = data
-                    self.refresh_update_button()
                     self.update_status.set(f"Versão {data[0]} pronta para instalar")
                     self.status.set(f"Sonora {data[0]} baixado. Clique em Atualizar e reiniciar.")
                 else:
-                    self.update_status.set(f"Versão {updater.VERSION} · você está em dia")
+                    self.update_status.set("Você já está na versão mais recente.")
+                self.refresh_update_button()
                 continue
             if event in {"inspected", "inspect_error"}:
                 self.lookup = None
@@ -817,7 +822,10 @@ class Sonora:
                 job.status = media.PENDING if self.closing else media.STOPPED
                 self.status.set("Download interrompido.")
             self.changed()
-            self.next_job()
+            if self.update_after_job and not self.closing:
+                self.close(restart=True)
+            else:
+                self.next_job()
         if self.closing:
             if not any(thread and thread.is_alive() for thread in (self.worker, self.lookup_thread, self.update_thread)):
                 if self.update_pending:
@@ -825,6 +833,15 @@ class Sonora:
                         updater.launch(self.update_pending[1], media.DATA / "instance.lock",
                                        restart=self.restart_after_update)
                     except OSError as error:
+                        if self.restart_after_update:
+                            self.closing = False
+                            self.update_after_job = False
+                            self.start_button.configure(text="Iniciar fila")
+                            self.update_controls()
+                            self.refresh_update_button()
+                            self.show_error("Atualizações do Sonora", str(error))
+                            self.root.after(70, self.poll)
+                            return
                         updater.discard(self.update_pending[1])
                         messagebox.showerror("Atualizações do Sonora", str(error), parent=self.root)
                 self.root.destroy()
@@ -838,7 +855,7 @@ class Sonora:
             "Sair do Sonora", "Interromper o download atual e deixá-lo na fila para a próxima sessão?", parent=self.root
         ):
             return
-        self.restart_after_update = restart
+        self.restart_after_update = restart or self.update_after_job
         self.closing = True
         self.running = False
         self.persist()
