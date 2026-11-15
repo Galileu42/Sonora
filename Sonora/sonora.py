@@ -28,6 +28,8 @@ BLUE = "#275ed6"
 ASSETS = media.ROOT / "assets"
 APP_ID = "Sonora.Windows.Desktop"
 SAFE_START = "--safe-start" in sys.argv
+STARTUP_EVENT = next((arg.partition("=")[2] for arg in sys.argv[1:]
+                      if arg.startswith("--startup-event=")), None)
 FONT = "Segoe UI" if os.name == "nt" else "DejaVu Sans"
 FONT_STYLES = ((9, "normal"), (9, "bold"), (10, "normal"), (10, "bold"),
                (11, "normal"), (11, "bold"), (14, "bold"), (15, "bold"), (20, "bold"))
@@ -1016,14 +1018,21 @@ def log_startup(stage):
 
 
 def signal_startup_ready(ready=True):
-    if ready:
-        log_startup("Interface respondeu aos eventos de abertura")
+    global STARTUP_EVENT
+    handle, STARTUP_EVENT = STARTUP_EVENT, None
     faulthandler.cancel_dump_traceback_later()
-    handle = os.environ.pop("SONORA_STARTUP_EVENT", None)
     if handle and os.name == "nt":
         import ctypes
 
-        ctypes.windll.kernel32.SetEvent(ctypes.c_void_p(int(handle)))
+        signal = ctypes.WinDLL("kernel32", use_last_error=True).SetEvent
+        signal.argtypes = (ctypes.c_void_p,)
+        signal.restype = ctypes.c_int
+        if not signal(ctypes.c_void_p(int(handle))):
+            log_startup(f"Falha ao avisar o lançador: erro Win32 {ctypes.get_last_error()}")
+        else:
+            log_startup("Lançador recebeu o sinal de abertura")
+    if ready:
+        log_startup("Interface respondeu aos eventos de abertura")
 
 
 def main():

@@ -19,7 +19,6 @@ static DWORD WINAPI recover_startup(LPVOID argument) {
     wchar_t command[65536];
     if (swprintf(command, ARRAYSIZE(command), L"\"%ls\" \"%ls\" --safe-start", python, script) < 0)
         return 0;
-    SetEnvironmentVariableW(L"SONORA_STARTUP_EVENT", NULL);
     SetEnvironmentVariableW(L"__PYVENV_LAUNCHER__", NULL);
 
     STARTUPINFOW startup = {0};
@@ -70,16 +69,17 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE previous, PWSTR command_line, 
     // Match CPython's venv redirector so sys.executable and site-packages
     // resolve to the prepared environment, while this EXE owns the window.
     SetEnvironmentVariableW(L"__PYVENV_LAUNCHER__", python);
-    wchar_t *arguments[] = {python, script, NULL};
+    wchar_t *arguments[] = {python, script, NULL, NULL};
+    wchar_t startup_event[64];
     HANDLE ready = CreateEventW(NULL, TRUE, FALSE, NULL);
     HANDLE watchdog = NULL;
     if (ready) {
-        wchar_t value[32];
-        swprintf(value, ARRAYSIZE(value), L"%llu", (unsigned long long)(ULONG_PTR)ready);
-        SetEnvironmentVariableW(L"SONORA_STARTUP_EVENT", value);
+        swprintf(startup_event, ARRAYSIZE(startup_event), L"--startup-event=%llu",
+                 (unsigned long long)(ULONG_PTR)ready);
+        arguments[2] = startup_event;
         watchdog = CreateThread(NULL, 0, recover_startup, ready, 0, NULL);
     }
-    int result = python_main(2, arguments);
+    int result = python_main(ready ? 3 : 2, arguments);
     if (ready) SetEvent(ready);
     if (watchdog) {
         WaitForSingleObject(watchdog, INFINITE);

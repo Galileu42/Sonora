@@ -17,7 +17,7 @@ import time
 
 
 ROOT = Path(__file__).resolve().parent
-VERSION = "1.8.2"
+VERSION = "1.8.3"
 DEFAULT_REPO = "Galileu42/Sonora"
 ASSET = "Sonora_Windows.zip"
 MAX_BYTES = 20 * 1024 * 1024
