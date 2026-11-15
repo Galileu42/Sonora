@@ -17,14 +17,14 @@ import engine as media
 import updater
 
 
-BG = "#111318"
-PANEL = "#1a1e26"
-FIELD = "#252b36"
-BORDER = "#313847"
-INK = "#f2f5fc"
-MUTED = "#b4bfce"
-ACCENT = "#a9caff"
-BLUE = "#275ed6"
+BG = "#10141d"
+PANEL = "#192130"
+FIELD = "#263247"
+BORDER = "#35445b"
+INK = "#f1f5ff"
+MUTED = "#b5c4dc"
+ACCENT = "#b7d9ff"
+BLUE = "#3269e8"
 ASSETS = media.ROOT / "assets"
 APP_ID = "Sonora.Windows.Desktop"
 SAFE_START = "--safe-start" in sys.argv
@@ -124,17 +124,18 @@ class Sonora:
             native_font.configure(family=family, size=11)
             self.fonts.append(native_font)
         self.configure_style(style)
+
     def configure_style(self, style):
         self.root.option_add("*TCombobox*Listbox.font", "TkTextFont")
         style.configure(".", background=BG, foreground=INK, font=font_name(11))
-        style.configure("TButton", padding=(12, 7), background=FIELD, borderwidth=0,
+        style.configure("TButton", padding=(13, 8), background=FIELD, borderwidth=0,
                         focuscolor=ACCENT, focusthickness=1)
         style.map("TButton", foreground=[("disabled", "#9aa6b9")])
         style.configure("Primary.TButton", background=BLUE, foreground="#ffffff", font=font_name(11, "bold"))
-        style.configure("Selected.TButton", background="#294878", foreground="#edf3ff",
+        style.configure("Selected.TButton", background="#2d4b7c", foreground="#edf3ff",
                         font=font_name(11, "bold"))
-        style.configure("Queue.TButton", padding=(9, 4), background=PANEL, foreground=MUTED)
-        style.configure("QueueSelected.TButton", padding=(9, 4), background="#293a54", foreground=ACCENT)
+        style.configure("Queue.TButton", padding=(12, 5), background=PANEL, foreground=MUTED)
+        style.configure("QueueSelected.TButton", padding=(12, 5), background="#29436c", foreground=ACCENT)
         style.configure("TCheckbutton", background=PANEL, indicatorbackground=FIELD, padding=(0, 3))
         style.map("TCheckbutton", indicatorcolor=[("selected", ACCENT)], background=[("active", PANEL)])
         style.configure("TEntry", fieldbackground=FIELD, foreground=INK, insertcolor=INK, padding=7,
@@ -154,15 +155,18 @@ class Sonora:
                         padding=(10, 8), font=font_name(10, "bold"))
         style.map("Treeview", background=[("selected", "#304672")], foreground=[("selected", INK)])
         style.configure("Card.TFrame", background=PANEL)
-        style.configure("Link.TFrame", background=BG)
         style.configure("Horizontal.TProgressbar", background=ACCENT, troughcolor=FIELD)
-        style.map("TButton", background=[("disabled", PANEL)])
         for variant, hover in (("TButton", "#384456"), ("Primary.TButton", "#326bec"),
                                ("Selected.TButton", "#35578e"), ("Queue.TButton", FIELD),
                                ("QueueSelected.TButton", "#334b6c")):
             style.map(variant, background=[("disabled", PANEL), ("active", hover)])
-        style.configure("Vertical.TScrollbar", background=FIELD, troughcolor=BG,
-                        bordercolor=BG, arrowcolor=MUTED, lightcolor=FIELD, darkcolor=FIELD)
+        style.layout("Sonora.Vertical.TScrollbar", [
+            ("Vertical.Scrollbar.trough", {"sticky": "ns", "children": [
+                ("Vertical.Scrollbar.thumb", {"expand": 1, "sticky": "nswe"}),
+            ]}),
+        ])
+        style.configure("Sonora.Vertical.TScrollbar", background="#526783", troughcolor=BG,
+                        bordercolor=BG, lightcolor="#526783", darkcolor="#526783", width=10)
         style.configure("Horizontal.TProgressbar", bordercolor=PANEL, lightcolor=ACCENT, darkcolor=ACCENT)
 
     def build(self):
@@ -192,9 +196,9 @@ class Sonora:
         workspace.pack(fill="both", expand=True)
         sidebar = self.card(workspace)
         sidebar.pack(side="right", fill="y", padx=(12, 0))
-        sidebar.configure(width=max(246, round(self.root.winfo_fpixels("2.54i"))))
+        sidebar.configure(width=max(262, round(250 * self.scale)))
         sidebar.pack_propagate(False)
-        self.label(sidebar, "Configurações de saída", heading=True).pack(anchor="w", pady=(0, 15))
+        self.label(sidebar, "Saída", heading=True).pack(anchor="w", pady=(0, 15))
         self.label(sidebar, "Tipo de mídia").pack(anchor="w")
         modes = tk.Frame(sidebar, bg=PANEL)
         modes.pack(fill="x", pady=(5, 13))
@@ -227,9 +231,9 @@ class Sonora:
         links.pack(fill="x", pady=(0, 12))
         header = tk.Frame(links, bg=PANEL)
         header.pack(fill="x", pady=(0, 7))
-        self.label(header, "Adicionar links", heading=True).pack(anchor="w")
-        self.label(header, "YouTube, Shorts ou playlists. Cole um link por linha.").pack(anchor="w", pady=(3, 0))
-        input_frame = self.rounded_panel(links, BG, PANEL, (7, 6), 7)
+        self.label(header, "Adicionar mídia", heading=True).pack(anchor="w")
+        self.label(header, "Cole um link do YouTube, Short ou playlist por linha.").pack(anchor="w", pady=(3, 0))
+        input_frame = self.rounded_panel(links, BG, PANEL, (12, 8), 11)
         input_frame.pack(fill="x")
         self.links = tk.Text(input_frame, height=2, width=1, wrap="word", font="TkTextFont", bg=BG, fg=INK,
                              insertbackground=INK, highlightthickness=0, relief="flat",
@@ -249,7 +253,7 @@ class Sonora:
         header.pack(fill="x", pady=(0, 9))
         self.label(header, "Fila de downloads", heading=True).pack(side="left")
         self.counts = tk.StringVar()
-        self.label(header, "", self.counts).pack(side="left", padx=(10, 0))
+        self.label(header, "", self.counts).pack(side="left", padx=(13, 0))
         self.start_button = ttk.Button(header, text="Iniciar fila", style="Primary.TButton", command=self.toggle)
         self.start_button.pack(side="right")
 
@@ -289,7 +293,7 @@ class Sonora:
         self.empty_hint = tk.StringVar()
         tk.Label(self.empty, textvariable=self.empty_hint, bg=BG, fg=MUTED,
                  font=font_name(10)).pack(pady=(5, 0))
-        self.tree.tag_configure("even", background="#191e28")
+        self.tree.tag_configure("even", background="#151e2d")
         self.tree.tag_configure(media.ACTIVE, foreground=ACCENT)
         self.tree.tag_configure(media.DONE, foreground="#a9e7cc")
         self.tree.tag_configure(media.FAILED, foreground="#ffc5c2")
@@ -303,21 +307,24 @@ class Sonora:
         self.update_options()
 
     def card(self, parent):
-        return self.rounded_panel(parent, PANEL, BG, (15, 12), 12)
+        return self.rounded_panel(parent, PANEL, BG, (17, 13), 16)
 
     def rounded_panel(self, parent, fill, background, padding, radius):
         panel = ttk.Frame(parent, style="Card.TFrame", padding=padding)
         canvas = tk.Canvas(panel, bg=background, highlightthickness=0, borderwidth=0, takefocus=False)
         # The decoration must span the outer frame, including its padding.
         canvas.place(x=0, y=0, relwidth=1, relheight=1, bordermode="ignore")
-        corners = canvas.create_polygon(0, 0, 0, 0, 0, 0, fill=fill, outline=BORDER, smooth=True)
+        corners = canvas.create_polygon(0, 0, 0, 0, 0, 0, fill=fill, outline=BORDER, smooth="raw")
 
         def layout(event):
             x, y = event.width - 1, event.height - 1
             r = min(round(radius * self.scale), x // 2, y // 2)
-            canvas.coords(corners, r, 0, r, 0, x-r, 0, x-r, 0, x, 0, x, r, x, r,
-                          x, y-r, x, y-r, x, y, x-r, y, x-r, y, r, y, r, y,
-                          0, y, 0, y-r, 0, y-r, 0, r, 0, r, 0, 0)
+            d = r * 0.5523
+            canvas.coords(corners,
+                          r, 0, r, 0, x-r, 0, x-r, 0, x-r+d, 0, x, r-d, x, r,
+                          x, r, x, y-r, x, y-r, x, y-r+d, x-r+d, y, x-r, y,
+                          x-r, y, r, y, r, y, r-d, y, 0, y-r+d, 0, y-r,
+                          0, y-r, 0, r, 0, r, 0, r-d, r-d, 0, r, 0)
 
         canvas.bind("<Configure>", layout)
         # Tk's Canvas.lower acts on drawing items. Lower the canvas widget itself.
@@ -329,16 +336,26 @@ class Sonora:
         return tk.Label(parent, text=text, textvariable=variable, bg=PANEL,
                         fg=INK if heading else MUTED, font=font_name(14, "bold") if heading else font_name(10))
 
-    @staticmethod
-    def make_table(parent, columns, stretch):
+    def make_table(self, parent, columns, stretch):
         tree = ttk.Treeview(parent, columns=[column[0] for column in columns], show="headings")
+        heading_font = tkfont.nametofont(font_name(10, "bold"), self.root)
         for key, label, width in columns:
             tree.heading(key, text=label, anchor="w")
-            tree.column(key, minwidth=45, width=width, stretch=key == stretch)
-        bar = ttk.Scrollbar(parent, command=tree.yview)
-        tree.configure(yscrollcommand=bar.set)
-        bar.pack(side="right", fill="y", padx=(2, 0))
+            min_width = heading_font.measure(label) + 24
+            tree.column(key, minwidth=min_width, width=max(min_width, round(width * self.scale)),
+                        stretch=key == stretch)
+        bar = ttk.Scrollbar(parent, command=tree.yview, orient="vertical", style="Sonora.Vertical.TScrollbar")
         tree.pack(fill="both", expand=True)
+
+        def update_scrollbar(first, last):
+            bar.set(first, last)
+            if float(first) == 0 and float(last) == 1:
+                if bar.winfo_manager():
+                    bar.pack_forget()
+            elif not bar.winfo_manager():
+                bar.pack(side="right", fill="y", padx=(3, 0), before=tree)
+
+        tree.configure(yscrollcommand=update_scrollbar)
         return tree
 
     def paste(self):
@@ -667,7 +684,7 @@ class Sonora:
         table = self.rounded_panel(pane, BG, PANEL, (7, 6), 7)
         table.pack(fill="both", expand=True)
         tree = self.make_table(table, columns, "codec")
-        tree.tag_configure("even", background="#191e28")
+        tree.tag_configure("even", background="#151e2d")
         for index, row in enumerate(rows):
             tree.insert("", "end", values=row, tags=("even",) if index % 2 == 0 else ())
 
