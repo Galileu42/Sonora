@@ -124,15 +124,6 @@ class Sonora:
             native_font.configure(family=family, size=11)
             self.fonts.append(native_font)
         self.configure_style(style)
-        if not SAFE_START:
-            try:
-                self.rounded_styles(style)
-            except tk.TclError as error:
-                log_startup(f"Tema arredondado indisponível: {error}")
-                # The UI has not been constructed yet, so a fresh base theme is safe.
-                style.theme_use("alt")
-                self.configure_style(style)
-
     def configure_style(self, style):
         self.root.option_add("*TCombobox*Listbox.font", "TkTextFont")
         style.configure(".", background=BG, foreground=INK, font=font_name(11))
@@ -165,130 +156,14 @@ class Sonora:
         style.configure("Card.TFrame", background=PANEL)
         style.configure("Link.TFrame", background=BG)
         style.configure("Horizontal.TProgressbar", background=ACCENT, troughcolor=FIELD)
-        if SAFE_START or style.theme_use() == "alt":
-            style.map("TButton", background=[("disabled", PANEL), ("active", "#384456")])
-
-    def surface(self, fill, radius, outline=None, chevron=False):
-        """Draw a transparent, antialiased surface for Tk's stretchable elements."""
-        key = (fill, radius, outline, chevron)
-        if key in self.style_images:
-            return self.style_images[key]
-        from base64 import b64encode
-        from struct import pack
-        import zlib
-
-        if chevron:
-            size = max(12, round(14 * self.scale))
-        else:
-            size = 2 * radius + 3
-        rgb = bytes.fromhex(fill[1:])
-        edge = bytes.fromhex(outline[1:]) if outline else rgb
-        pixels = bytearray()
-        for y in range(size):
-            pixels.append(0)
-            for x in range(size):
-                if chevron:
-                    horizontal = abs(x + 0.5 - size / 2)
-                    stroke = abs(y + 0.5 - size * 0.59 + horizontal)
-                    alpha = max(0.0, min(1.0, size * 0.31 - horizontal, 1.35 - stroke))
-                    color = rgb
-                else:
-                    dx = max(radius - x - 0.5, x + 0.5 - size + radius, 0)
-                    dy = max(radius - y - 0.5, y + 0.5 - size + radius, 0)
-                    distance = (dx * dx + dy * dy) ** 0.5
-                    alpha = max(0.0, min(1.0, radius + 0.5 - distance))
-                    color = edge if outline and (distance >= radius - 1 or x in (0, size - 1)
-                                                 or y in (0, size - 1)) else rgb
-                pixels.extend(color)
-                pixels.append(round(alpha * 255))
-
-        def chunk(name, data):
-            content = name + data
-            return pack(">I", len(data)) + content + pack(">I", zlib.crc32(content))
-
-        png = b"\x89PNG\r\n\x1a\n"
-        png += chunk(b"IHDR", pack(">IIBBBBB", size, size, 8, 6, 0, 0, 0))
-        png += chunk(b"IDAT", zlib.compress(pixels)) + chunk(b"IEND", b"")
-        image = tk.PhotoImage(master=self.root, data=b64encode(png))
-        self.style_images[key] = image
-        return image
-
-    def rounded_styles(self, style):
-        self.style_images = {}
-        control = round(9 * self.scale)
-        panel = round(15 * self.scale)
-        pill = round(13 * self.scale)
-
-        def element(name, radius, fill, states=(), outline=None):
-            normal = self.surface(fill, radius, outline=outline)
-            variants = [(*state, self.surface(color, radius, outline=border))
-                        for state, color, border in states]
-            style.element_create(name, "image", normal, *variants, border=radius + 1, padding=0,
-                                 width=1, height=1, sticky="nswe")
-
-        for variant, radius, fill, hover, pressed in (
-            ("", control, FIELD, "#353e4e", "#3d485c"),
-            ("Primary.", control, BLUE, "#326bec", "#2252bc"),
-            ("Selected.", control, "#294878", "#35578e", "#25416e"),
-            ("Queue.", pill, PANEL, FIELD, "#2e3a50"),
-            ("QueueSelected.", pill, "#293a54", "#334b6c", "#24364e"),
-        ):
-            style.configure(variant + "TButton", background=PANEL, width=0)
-            surface = variant + "Sonora.Button"
-            element(surface, radius, fill, (
-                (("disabled",), PANEL, BORDER),
-                (("pressed",), pressed, None),
-                (("active", "focus"), hover, ACCENT),
-                (("focus",), fill, ACCENT),
-                (("active",), hover, None),
-            ))
-            style.layout(variant + "TButton", [(surface, {"sticky": "nswe", "children": [
-                ("Button.padding", {"sticky": "nswe", "children": [
-                    ("Button.label", {"sticky": "nswe"}),
-                ]}),
-            ]})])
-
-        scroll_radius = max(3, round(4 * self.scale))
-        scroll_track = self.surface(BG, scroll_radius)
-        scroll_thumb = self.surface("#445169", scroll_radius)
-        scroll_hover = self.surface("#596a86", scroll_radius)
-        style.element_create("Sonora.Scrollbar.trough", "image", scroll_track, width=9, height=1,
-                             border=scroll_radius, sticky="nswe")
-        style.element_create("Sonora.Scrollbar.thumb", "image", scroll_thumb, ("active", scroll_hover),
-                             width=9, height=18, border=scroll_radius, sticky="nswe")
-        style.layout("Vertical.TScrollbar", [("Sonora.Scrollbar.trough", {"sticky": "ns", "children": [
-            ("Sonora.Scrollbar.thumb", {"expand": 1, "sticky": "nswe"}),
-        ]})])
-        track = self.surface(FIELD, max(2, round(3 * self.scale)))
-        fill = self.surface(ACCENT, max(2, round(3 * self.scale)))
-        style.element_create("Sonora.Progress.trough", "image", track, border=3, width=1, height=7, sticky="nswe")
-        style.element_create("Sonora.Progress.pbar", "image", fill, border=3, width=1, height=7, sticky="nswe")
-        style.layout("Horizontal.TProgressbar", [("Sonora.Progress.trough", {"sticky": "nswe", "children": [
-            ("Sonora.Progress.pbar", {"side": "left", "sticky": "ns"}),
-        ]})])
-
-        element("Sonora.Card", panel, PANEL, outline=BORDER)
-        style.configure("Card.TFrame", background=BG)
-        style.layout("Card.TFrame", [("Sonora.Card", {"sticky": "nswe"})])
-        element("Sonora.Link", control, BG, outline=BORDER)
-        style.configure("Link.TFrame", background=PANEL)
-        style.layout("Link.TFrame", [("Sonora.Link", {"sticky": "nswe"})])
-        element("Sonora.Field", control, FIELD, ((("focus",), FIELD, ACCENT),), outline=BORDER)
-        style.configure("TEntry", background=PANEL)
-        style.configure("TCombobox", background=PANEL)
-        style.layout("TEntry", [("Sonora.Field", {"sticky": "nswe", "children": [
-            ("Entry.padding", {"sticky": "nswe", "children": [
-                ("Entry.textarea", {"sticky": "nswe"}),
-            ]}),
-        ]})])
-        arrow = self.surface(INK, control, chevron=True)
-        style.element_create("Sonora.Combobox.downarrow", "image", arrow, padding=(0, 0, 8, 0))
-        style.layout("TCombobox", [("Sonora.Field", {"sticky": "nswe", "children": [
-            ("Sonora.Combobox.downarrow", {"side": "right", "sticky": "e"}),
-            ("Combobox.padding", {"expand": 1, "sticky": "nswe", "children": [
-                ("Combobox.textarea", {"sticky": "nswe"}),
-            ]}),
-        ]})])
+        style.map("TButton", background=[("disabled", PANEL)])
+        for variant, hover in (("TButton", "#384456"), ("Primary.TButton", "#326bec"),
+                               ("Selected.TButton", "#35578e"), ("Queue.TButton", FIELD),
+                               ("QueueSelected.TButton", "#334b6c")):
+            style.map(variant, background=[("disabled", PANEL), ("active", hover)])
+        style.configure("Vertical.TScrollbar", background=FIELD, troughcolor=BG,
+                        bordercolor=BG, arrowcolor=MUTED, lightcolor=FIELD, darkcolor=FIELD)
+        style.configure("Horizontal.TProgressbar", bordercolor=PANEL, lightcolor=ACCENT, darkcolor=ACCENT)
 
     def build(self):
         toolbar = tk.Frame(self.root, bg=PANEL, padx=22, pady=11)
@@ -337,7 +212,7 @@ class Sonora:
         self.quality_box = ttk.Combobox(sidebar, state="readonly", width=15)
         self.quality_box.pack(fill="x", pady=(5, 5))
         self.quality_box.bind("<<ComboboxSelected>>", self.set_quality)
-        note_panel = ttk.Frame(sidebar, style="Link.TFrame", padding=(9, 3))
+        note_panel = self.rounded_panel(sidebar, BG, PANEL, (9, 5), 7)
         note_panel.pack(fill="x", pady=(3, 0))
         tk.Label(note_panel, textvariable=self.summary, bg=BG, fg=ACCENT, font=font_name(10),
                  wraplength=max(175, round(195 * self.scale)), justify="left", anchor="w", height=2).pack(fill="x")
@@ -354,7 +229,7 @@ class Sonora:
         header.pack(fill="x", pady=(0, 7))
         self.label(header, "Adicionar links", heading=True).pack(anchor="w")
         self.label(header, "YouTube, Shorts ou playlists. Cole um link por linha.").pack(anchor="w", pady=(3, 0))
-        input_frame = ttk.Frame(links, style="Link.TFrame", padding=(7, 5))
+        input_frame = self.rounded_panel(links, BG, PANEL, (7, 6), 7)
         input_frame.pack(fill="x")
         self.links = tk.Text(input_frame, height=2, width=1, wrap="word", font="TkTextFont", bg=BG, fg=INK,
                              insertbackground=INK, highlightthickness=0, relief="flat",
@@ -401,7 +276,7 @@ class Sonora:
             self.action_buttons[key] = button
         self.clear_button = ttk.Button(footer, text="Limpar concluídos", command=self.clear_done)
         self.clear_button.pack(side="right")
-        table = ttk.Frame(queue, style="Link.TFrame", padding=(6, 4))
+        table = self.rounded_panel(queue, BG, PANEL, (7, 6), 7)
         table.pack(fill="both", expand=True)
         columns = (("title", "Título", 235), ("format", "Formato", 75),
                    ("quality", "Qualidade", 85), ("status", "Estado", 105))
@@ -427,9 +302,27 @@ class Sonora:
         self.mode.set(mode)
         self.update_options()
 
-    @staticmethod
-    def card(parent):
-        return ttk.Frame(parent, style="Card.TFrame", padding=(15, 12))
+    def card(self, parent):
+        return self.rounded_panel(parent, PANEL, BG, (15, 12), 12)
+
+    def rounded_panel(self, parent, fill, background, padding, radius):
+        panel = ttk.Frame(parent, style="Card.TFrame", padding=padding)
+        canvas = tk.Canvas(panel, bg=background, highlightthickness=0, borderwidth=0, takefocus=False)
+        # The decoration must span the outer frame, including its padding.
+        canvas.place(x=0, y=0, relwidth=1, relheight=1, bordermode="ignore")
+        corners = canvas.create_polygon(0, 0, 0, 0, 0, 0, fill=fill, outline=BORDER, smooth=True)
+
+        def layout(event):
+            x, y = event.width - 1, event.height - 1
+            r = min(round(radius * self.scale), x // 2, y // 2)
+            canvas.coords(corners, r, 0, r, 0, x-r, 0, x-r, 0, x, 0, x, r, x, r,
+                          x, y-r, x, y-r, x, y, x-r, y, x-r, y, r, y, r, y,
+                          0, y, 0, y-r, 0, y-r, 0, r, 0, r, 0, 0)
+
+        canvas.bind("<Configure>", layout)
+        # Tk's Canvas.lower acts on drawing items. Lower the canvas widget itself.
+        canvas.tk.call("lower", canvas)
+        return panel
 
     @staticmethod
     def label(parent, text, variable=None, heading=False):
@@ -581,7 +474,7 @@ class Sonora:
         pane.pack(fill="both", expand=True, padx=7, pady=7)
         tk.Label(pane, text=hint or media.error_hint(details), bg=PANEL, fg=INK,
                  anchor="w", justify="left", wraplength=510, font=font_name(11, "bold")).pack(fill="x")
-        body_panel = ttk.Frame(pane, style="Link.TFrame", padding=(6, 4))
+        body_panel = self.rounded_panel(pane, BG, PANEL, (7, 6), 7)
         body_panel.pack(fill="both", expand=True, pady=(9, 8))
         body = tk.Text(body_panel, height=9, width=58, wrap="word", bg=BG, fg=INK,
                        relief="flat", padx=8, pady=6, font=font_name(9))
@@ -771,7 +664,7 @@ class Sonora:
                  font=font_name(9), wraplength=390, justify="left").pack(side="left")
         columns = (("id", "ID", 62), ("kind", "Tipo", 174), ("ext", "Formato", 73), ("res", "Resolução", 83),
                    ("fps", "FPS", 55), ("rate", "kbps", 65), ("size", "Tamanho", 104), ("codec", "Codec", 170))
-        table = ttk.Frame(pane, style="Link.TFrame", padding=(6, 4))
+        table = self.rounded_panel(pane, BG, PANEL, (7, 6), 7)
         table.pack(fill="both", expand=True)
         tree = self.make_table(table, columns, "codec")
         tree.tag_configure("even", background="#191e28")
