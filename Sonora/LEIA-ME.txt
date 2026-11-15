@@ -54,7 +54,13 @@ Se mover a pasta do aplicativo, execute Criar_Atalhos.cmd de novo.
 
 COMO USAR
 Cole links de vídeos, Shorts, YouTube Music ou playlists. Escolha o
-formato, a qualidade e a pasta. Clique em Adicionar à fila e Iniciar fila.
+formato, a qualidade e a pasta. Use Escolher pasta para definir o destino
+padrão ou marque Perguntar a cada lote para escolher ao adicionar à fila.
+Cada item mantém o destino escolhido quando foi adicionado.
+O áudio começa em Original e Máxima disponível para copiar a melhor
+faixa oferecida pela fonte sem recodificação. Se precisar de MP3 ou
+outro formato, selecione-o no painel Saída.
+Clique em Adicionar à fila e Iniciar fila.
 Um link direto de playlist é expandido automaticamente. Marque
 “Incluir todos os vídeos da playlist” para expandir também um link
 de vídeo que pertença a uma playlist. Cada vídeo vira um item próprio.

@@ -129,7 +129,7 @@ def load_state():
     if isinstance(settings, dict):
         defaults["settings"] = {
             key: value for key, value in settings.items()
-            if (isinstance(value, bool) if key == "playlist" else isinstance(value, str))
+            if isinstance(value, bool if key in {"playlist", "ask_destination", "original_audio_default_migrated"} else str)
         }
     known_fields = Job.__dataclass_fields__
     used_ids = set()
@@ -255,12 +255,15 @@ def inspect(url, playlist, runner):
 def playlist_entries(document, fallback):
     if "entries" not in document:
         return [(fallback, document.get("title") or "")]
+    raw_entries = document.get("entries")
+    if not isinstance(raw_entries, list):
+        raise RuntimeError("A playlist não retornou uma lista de vídeos válida.")
     entries = []
-    for entry in document.get("entries") or []:
-        if not entry:
+    for entry in raw_entries:
+        if not isinstance(entry, dict):
             continue
         identifier = entry.get("id", "")
-        if re.fullmatch(r"[\w-]{11}", identifier):
+        if isinstance(identifier, str) and re.fullmatch(r"[A-Za-z0-9_-]{11}", identifier):
             entries.append((f"https://www.youtube.com/watch?v={identifier}", entry.get("title") or ""))
     if not entries:
         raise RuntimeError("Nenhum vídeo encontrado na playlist.")

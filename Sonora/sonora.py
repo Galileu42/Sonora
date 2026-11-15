@@ -40,6 +40,8 @@ def font_name(size, weight="normal"):
 
 
 DEFAULT_FOLDER = str(Path.home() / "Downloads" / "Sonora")
+DEFAULT_QUALITY = "Máxima"
+DEFAULT_AUDIO_FORMAT = "Original"
 
 
 def open_path(path):
@@ -145,9 +147,16 @@ class Sonora:
         self.pending_count = 0
         self.done_count = 0
         self.folder = tk.StringVar(value=settings.get("folder", DEFAULT_FOLDER))
-        self.mode = tk.StringVar(value=settings.get("mode", "Áudio"))
-        self.format = tk.StringVar(value=settings.get("format", "MP3"))
-        self.quality = tk.StringVar(value=settings.get("quality", "192"))
+        self.ask_destination = tk.BooleanVar(value=settings.get("ask_destination", False))
+        mode = settings.get("mode")
+        mode = mode if mode in {"Áudio", "Vídeo"} else "Áudio"
+        fmt = settings.get("format", DEFAULT_AUDIO_FORMAT if mode == "Áudio" else media.VIDEO[0])
+        quality = settings.get("quality", DEFAULT_QUALITY)
+        if not settings.get("original_audio_default_migrated") and (mode, fmt, quality) == ("Áudio", "MP3", "192"):
+            fmt, quality = DEFAULT_AUDIO_FORMAT, DEFAULT_QUALITY
+        self.mode = tk.StringVar(value=mode)
+        self.format = tk.StringVar(value=fmt)
+        self.quality = tk.StringVar(value=quality)
         self.playlist = tk.BooleanVar(value=settings.get("playlist", False))
         self.status = tk.StringVar(value=state.get("warning", "") or "Pronto para adicionar links.")
         self.summary = tk.StringVar(value="")
@@ -301,7 +310,9 @@ class Sonora:
         folder_panel = self.rounded_panel(sidebar, FIELD, PANEL, (8, 4), 10)
         folder_panel.pack(fill="x", pady=(5, 7))
         ttk.Entry(folder_panel, textvariable=self.folder, width=16, style="Inset.TEntry").pack(fill="x")
-        Button(sidebar, text="Alterar pasta", command=self.choose_folder).pack(anchor="w")
+        Button(sidebar, text="Escolher pasta…", command=self.choose_folder).pack(anchor="w")
+        ttk.Checkbutton(sidebar, text="Perguntar a cada lote", variable=self.ask_destination,
+                        command=self.persist).pack(anchor="w", pady=(9, 0))
 
         work = tk.Frame(workspace, bg=BG)
         work.pack(side="left", fill="both", expand=True)
@@ -444,7 +455,7 @@ class Sonora:
         formats = media.AUDIO if self.mode.get() == "Áudio" else media.VIDEO
         self.format_box.configure(values=formats)
         if self.format.get() not in formats:
-            self.format.set(formats[0])
+            self.format.set(DEFAULT_AUDIO_FORMAT if self.mode.get() == "Áudio" else formats[0])
         self.quality_values = {"Máxima disponível": "Máxima"}
         fmt = self.format.get()
         if self.mode.get() == "Vídeo":
@@ -452,8 +463,8 @@ class Sonora:
         elif fmt not in {"FLAC", "WAV", "Original"}:
             self.quality_values.update({f"{rate} kbps": str(rate) for rate in media.RATES})
         self.quality_box.configure(values=list(self.quality_values))
-        fallback = "192 kbps" if "192 kbps" in self.quality_values else "Máxima disponível"
-        label = next((key for key, value in self.quality_values.items() if value == self.quality.get()), fallback)
+        label = next((key for key, value in self.quality_values.items() if value == self.quality.get()),
+                     "Máxima disponível")
         self.quality_box.set(label)
         self.set_quality()
 
@@ -475,15 +486,40 @@ class Sonora:
             hint = "Maior qualidade de codificação oferecida pelo app."
         self.summary.set(hint)
 
-    def choose_folder(self):
-        directory = filedialog.askdirectory(initialdir=self.folder.get(), parent=self.root)
-        if directory:
+    def choose_folder(self, parent=None, *, remember=True):
+        try:
+            start = Path(self.destination())
+            while not start.is_dir() and start != start.parent:
+                start = start.parent
+        except (OSError, ValueError, RuntimeError):
+            start = Path.home()
+        directory = filedialog.askdirectory(title="Escolher pasta de download", initialdir=str(start),
+                                             mustexist=True, parent=parent or self.root)
+        if not directory:
+            return None
+        try:
+            directory = self.destination(directory)
+        except (OSError, ValueError, RuntimeError) as exc:
+            messagebox.showwarning("Pasta de destino", str(exc), parent=parent or self.root)
+            return None
+        if remember:
             self.folder.set(directory)
             self.persist()
+        return directory
 
-    def destination(self):
-        value = self.folder.get().strip()
-        return str(Path(value or DEFAULT_FOLDER).expanduser().resolve())
+    def destination(self, value=None):
+        value = self.folder.get() if value is None else value
+        path = Path(os.path.expandvars(value.strip() or DEFAULT_FOLDER)).expanduser().resolve()
+        # Reject ordinary files even when they are an ancestor of the destination.
+        for directory in (path, *path.parents):
+            if directory.is_dir():
+                break
+            if directory.exists():
+                raise ValueError(f"O destino contém um arquivo no lugar de uma pasta: {directory}")
+        return str(path)
+
+    def batch_destination(self, parent=None):
+        return self.choose_folder(parent, remember=False) if self.ask_destination.get() else self.destination()
 
     def open_folder(self):
         try:
@@ -503,11 +539,14 @@ class Sonora:
         if self.closing:
             return
         try:
-            folder = self.destination()
+            urls = self.urls()
+            folder = self.batch_destination()
+            if folder is None:
+                return
             jobs = [
                 media.Job(url, self.mode.get(), self.format.get(), self.quality.get(), folder,
                           self.playlist.get() or url.split("?", 1)[0].rstrip("/").endswith("/playlist"))
-                for url in self.urls()
+                for url in urls
             ]
         except (OSError, ValueError, RuntimeError) as exc:
             messagebox.showwarning("Verifique os links ou a pasta", str(exc), parent=self.root)
@@ -647,7 +686,9 @@ class Sonora:
             media.save_state({
                 "folder": self.folder.get(), "mode": self.mode.get(), "format": self.format.get(),
                 "quality": self.quality.get(), "playlist": self.playlist.get(),
-                "update_repo": self.update_repo
+                "update_repo": self.update_repo,
+                "ask_destination": self.ask_destination.get(),
+                "original_audio_default_migrated": True
             }, self.jobs)
         except OSError as exc:
             self.status.set(f"Falha ao salvar a fila: {exc}")
@@ -766,7 +807,9 @@ class Sonora:
             if self.closing:
                 return
             try:
-                folder = self.destination()
+                folder = self.batch_destination(dialog)
+                if folder is None:
+                    return
             except (OSError, ValueError, RuntimeError) as exc:
                 messagebox.showwarning("Pasta de destino", str(exc), parent=dialog)
                 return
