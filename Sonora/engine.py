@@ -131,6 +131,11 @@ def load_state():
             key: value for key, value in settings.items()
             if isinstance(value, bool if key in {"playlist", "ask_destination", "original_audio_default_migrated"} else str)
         }
+        folders = settings.get("recent_folders")
+        if isinstance(folders, list):
+            defaults["settings"]["recent_folders"] = [
+                folder for folder in folders if isinstance(folder, str) and folder.strip()
+            ][:6]
     known_fields = Job.__dataclass_fields__
     used_ids = set()
     for data in contents.get("jobs", []):

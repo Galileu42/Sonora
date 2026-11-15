@@ -56,6 +56,9 @@ COMO USAR
 Cole links de vídeos, Shorts, YouTube Music ou playlists. Escolha o
 formato, a qualidade e a pasta. Use Escolher pasta para definir o destino
 padrão ou marque Perguntar a cada lote para escolher ao adicionar à fila.
+Na janela de destino, acesse Downloads, a pasta Sonora ou as seis
+pastas recentes. Use Procurar para navegar no Windows ou cole um caminho.
+Ao escolher por lote, marque Salvar também como pasta padrão para reutilizá-la.
 Cada item mantém o destino escolhido quando foi adicionado.
 O áudio começa em Original e Máxima disponível para copiar a melhor
 faixa oferecida pela fonte sem recodificação. Se precisar de MP3 ou

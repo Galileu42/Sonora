@@ -147,6 +147,8 @@ class Sonora:
         self.pending_count = 0
         self.done_count = 0
         self.folder = tk.StringVar(value=settings.get("folder", DEFAULT_FOLDER))
+        self.recent_folders = settings.get("recent_folders", [])
+        self.destination_dialog = None
         self.ask_destination = tk.BooleanVar(value=settings.get("ask_destination", False))
         mode = settings.get("mode")
         mode = mode if mode in {"Áudio", "Vídeo"} else "Áudio"
@@ -487,25 +489,88 @@ class Sonora:
         self.summary.set(hint)
 
     def choose_folder(self, parent=None, *, remember=True):
+        if self.destination_dialog is not None:
+            self.destination_dialog.lift()
+            return None
+        owner = parent or self.root
+        dialog = tk.Toplevel(owner, bg=BG)
+        self.destination_dialog = dialog
+        dialog.title("Pasta de download")
+        dialog.transient(owner)
+        panel = self.card(dialog)
+        panel.pack(fill="both", expand=True, padx=10, pady=10)
+        self.label(panel, "Onde salvar?", heading=True).pack(anchor="w")
+        subtitle = "Escolha a pasta padrão do Sonora." if remember else "Escolha o destino deste lote."
+        self.label(panel, subtitle).pack(anchor="w", pady=(4, 14))
+
+        path = tk.StringVar(dialog, self.folder.get())
+        custom = self.rounded_panel(panel, FIELD, PANEL, (8, 4), 10)
+        custom.pack(fill="x")
+        field = ttk.Entry(custom, textvariable=path, width=54, style="Inset.TEntry")
+        field.pack(fill="x")
+        shortcuts = tk.Frame(panel, bg=PANEL)
+        shortcuts.pack(fill="x", pady=(8, 12))
+        Button(shortcuts, text="Downloads", command=lambda: path.set(str(Path(DEFAULT_FOLDER).parent))).pack(side="left")
+        Button(shortcuts, text="Downloads / Sonora", command=lambda: path.set(DEFAULT_FOLDER)).pack(side="left", padx=6)
+        Button(shortcuts, text="Procurar…", command=lambda: self.browse_destination(dialog, path)).pack(side="right")
+
+        if self.recent_folders:
+            self.label(panel, "Pastas recentes").pack(anchor="w")
+            recent = ttk.Combobox(panel, state="readonly", width=54, values=self.recent_folders,
+                                  style="Inset.TCombobox")
+            recent.pack(fill="x", pady=(4, 12))
+            recent.bind("<<ComboboxSelected>>", lambda _event: path.set(recent.get()))
+
+        use_default = tk.BooleanVar(dialog, remember)
+        if not remember:
+            ttk.Checkbutton(panel, text="Salvar também como pasta padrão", variable=use_default).pack(anchor="w")
+        error = tk.StringVar(dialog)
+        tk.Label(panel, textvariable=error, bg=PANEL, fg="#ffc5c2", font=font_name(10),
+                 wraplength=430, justify="left").pack(fill="x", pady=6)
+
+        chosen = None
+
+        def confirm(_event=None):
+            nonlocal chosen
+            try:
+                chosen = self.destination(path.get())
+            except (OSError, ValueError, RuntimeError) as exc:
+                error.set(str(exc))
+                return
+            key = os.path.normcase(chosen)
+            self.recent_folders = [chosen, *(value for value in self.recent_folders
+                                            if os.path.normcase(value) != key)][:6]
+            if use_default.get():
+                self.folder.set(chosen)
+            self.persist()
+            dialog.destroy()
+
+        actions = tk.Frame(panel, bg=PANEL)
+        actions.pack(fill="x")
+        Button(actions, text="Salvar pasta padrão" if remember else "Usar neste lote",
+               command=confirm, style="Primary.TButton").pack(side="right")
+        Button(actions, text="Cancelar", command=dialog.destroy).pack(side="right", padx=8)
+        dialog.bind("<Return>", confirm)
+        dialog.bind("<Escape>", lambda _event: dialog.destroy())
+        field.focus_set()
+        dialog.grab_set()
         try:
-            start = Path(self.destination())
+            self.root.wait_window(dialog)
+        finally:
+            self.destination_dialog = None
+        return chosen
+
+    def browse_destination(self, parent, path):
+        try:
+            start = Path(self.destination(path.get()))
             while not start.is_dir() and start != start.parent:
                 start = start.parent
         except (OSError, ValueError, RuntimeError):
             start = Path.home()
-        directory = filedialog.askdirectory(title="Escolher pasta de download", initialdir=str(start),
-                                             mustexist=True, parent=parent or self.root)
-        if not directory:
-            return None
-        try:
-            directory = self.destination(directory)
-        except (OSError, ValueError, RuntimeError) as exc:
-            messagebox.showwarning("Pasta de destino", str(exc), parent=parent or self.root)
-            return None
-        if remember:
-            self.folder.set(directory)
-            self.persist()
-        return directory
+        directory = filedialog.askdirectory(title="Procurar pasta de download", initialdir=str(start),
+                                             mustexist=True, parent=parent)
+        if directory:
+            path.set(directory)
 
     def destination(self, value=None):
         value = self.folder.get() if value is None else value
@@ -541,7 +606,7 @@ class Sonora:
         try:
             urls = self.urls()
             folder = self.batch_destination()
-            if folder is None:
+            if folder is None or self.closing:
                 return
             jobs = [
                 media.Job(url, self.mode.get(), self.format.get(), self.quality.get(), folder,
@@ -688,6 +753,7 @@ class Sonora:
                 "quality": self.quality.get(), "playlist": self.playlist.get(),
                 "update_repo": self.update_repo,
                 "ask_destination": self.ask_destination.get(),
+                "recent_folders": self.recent_folders,
                 "original_audio_default_migrated": True
             }, self.jobs)
         except OSError as exc:
@@ -808,7 +874,7 @@ class Sonora:
                 return
             try:
                 folder = self.batch_destination(dialog)
-                if folder is None:
+                if folder is None or self.closing:
                     return
             except (OSError, ValueError, RuntimeError) as exc:
                 messagebox.showwarning("Pasta de destino", str(exc), parent=dialog)
