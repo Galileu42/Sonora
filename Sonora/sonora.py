@@ -95,7 +95,6 @@ class Sonora:
         self.update_after_job = False
         self.update_status = tk.StringVar(value=f"Versão {updater.VERSION}")
         self.update_dialog_window = None
-        self.startup_font_pending = False
         log_startup("Configurando o tema")
         self.style()
         log_startup("Criando os controles")
@@ -109,105 +108,8 @@ class Sonora:
         self.root.after_idle(self.finish_startup)
 
     def finish_startup(self):
-        if SAFE_START or self.closing:
-            signal_startup_ready()
-            return
-        log_startup("Aplicando o tema arredondado")
-        self.apply_rounded_style()
-        if os.name != "nt":
-            self.complete_visual_startup()
-            return
-
-        log_startup("Carregando a fonte Nunito")
-        self.startup_font_pending = True
-        self.root.after(1800, self.finish_font_startup)
-        Thread(target=self.register_font_for_startup, daemon=True).start()
-
-    def register_font_for_startup(self):
-        try:
-            registered = self.register_font()
-        except (OSError, ValueError) as error:
-            log_startup(f"Fonte arredondada indisponível: {error}")
-            registered = False
-        self.events.put(("rounded_font", registered))
-
-    def complete_visual_startup(self):
-        self.startup_font_pending = False
-        # Let Tk lay out and draw the updated widgets before dismissing recovery.
-        self.root.after_idle(lambda: self.root.after(0, signal_startup_ready))
-
-    def finish_font_startup(self, registered=False):
-        if not self.startup_font_pending:
-            return
-        if registered and not self.closing:
-            log_startup("Aplicando a fonte Nunito")
-            for font in self.fonts:
-                font.configure(family="Nunito")
-            if self.fonts[0].actual("family").casefold() != "nunito":
-                for font in self.fonts:
-                    font.configure(family=FONT)
-                log_startup("O Tk não selecionou a fonte Nunito")
-        self.complete_visual_startup()
-
-    def apply_rounded_style(self):
-        if self.closing:
-            return
-        style = ttk.Style(self.root)
-        try:
-            style.theme_create("sonora", parent="clam")
-            style.theme_use("sonora")
-            self.configure_style(style)
-            self.rounded_styles(style)
-        except tk.TclError as error:
-            style.theme_use("clam")
-            log_startup(f"Tema arredondado indisponível: {error}")
-
-    def register_font(self):
-        import ctypes as ct
-        from ctypes import wintypes as wt
-
-        kernel = ct.windll.kernel32
-        kernel.FindResourceW.argtypes = (wt.HMODULE, ct.c_void_p, ct.c_void_p)
-        kernel.FindResourceW.restype = wt.HRSRC
-        kernel.LoadResource.argtypes = (wt.HMODULE, wt.HRSRC)
-        kernel.LoadResource.restype = wt.HGLOBAL
-        kernel.SizeofResource.argtypes = (wt.HMODULE, wt.HRSRC)
-        kernel.SizeofResource.restype = wt.DWORD
-        kernel.LockResource.argtypes = (wt.HGLOBAL,)
-        kernel.LockResource.restype = ct.c_void_p
-        kernel.LoadLibraryExW.argtypes = (wt.LPCWSTR, wt.HANDLE, wt.DWORD)
-        kernel.LoadLibraryExW.restype = wt.HMODULE
-        kernel.FreeLibrary.argtypes = (wt.HMODULE,)
-        module = kernel.LoadLibraryExW(str(ASSETS.parent / "Sonora.exe"), None, 0x22)
-        if not module:
-            log_startup("Não foi possível abrir os recursos de fonte")
-            return False
-        add = ct.windll.gdi32.AddFontResourceExW
-        add.argtypes = (wt.LPCWSTR, wt.DWORD, ct.c_void_p)
-        add.restype = ct.c_int
-        try:
-            folder = media.DATA / "fontes"
-            folder.mkdir(exist_ok=True)
-            for resource_id in (301, 302):
-                resource = kernel.FindResourceW(module, resource_id, 10)
-                if not resource:
-                    return False
-                loaded = kernel.LoadResource(module, resource)
-                pointer = kernel.LockResource(loaded) if loaded else None
-                if not pointer:
-                    return False
-                data = ct.string_at(pointer, kernel.SizeofResource(module, resource))
-                path = folder / f"Nunito-{resource_id}.ttf"
-                if not path.exists() or path.read_bytes() != data:
-                    path.write_bytes(data)
-                if not add(str(path), 0x10, None):
-                    return False
-        except (OSError, ValueError) as error:
-            log_startup(f"Fonte arredondada indisponível: {error}")
-            return False
-        finally:
-            kernel.FreeLibrary(module)
-        return True
+        # Paint the completed layout before notifying the Windows launcher.
+        self.root.after(0, signal_startup_ready)
 
     def style(self):
         style = ttk.Style(self.root)
@@ -220,6 +122,14 @@ class Sonora:
             native_font.configure(family=family, size=11)
             self.fonts.append(native_font)
         self.configure_style(style)
+        if not SAFE_START:
+            try:
+                self.rounded_styles(style)
+            except tk.TclError as error:
+                log_startup(f"Tema arredondado indisponível: {error}")
+                # The UI has not been constructed yet, so a fresh base theme is safe.
+                style.theme_use("alt")
+                self.configure_style(style)
 
     def configure_style(self, style):
         self.root.option_add("*TCombobox*Listbox.font", "TkTextFont")
@@ -253,7 +163,7 @@ class Sonora:
         style.configure("Card.TFrame", background=PANEL)
         style.configure("Link.TFrame", background=BG)
         style.configure("Horizontal.TProgressbar", background=ACCENT, troughcolor=FIELD)
-        if style.theme_use() == "clam":
+        if SAFE_START or style.theme_use() == "alt":
             style.map("TButton", background=[("disabled", PANEL), ("active", "#384456")])
 
     def surface(self, fill, radius, outline=None, chevron=False):
@@ -984,9 +894,6 @@ class Sonora:
                 event, data = self.events.get_nowait()
             except Empty:
                 break
-            if event == "rounded_font":
-                self.finish_font_startup(registered=data)
-                continue
             if event == "update_download":
                 self.update_status.set(f"Baixando Sonora {data}…")
                 continue
@@ -1176,6 +1083,7 @@ def run_interface():
     log_startup("Inicializando o Tk")
     try:
         window = tk.Tk()
+        window.withdraw()
     except Exception:
         report_error(*sys.exc_info())
         raise
@@ -1191,6 +1099,7 @@ def run_interface():
                              parent=window)
         window.destroy()
         return
+    window.deiconify()
     window.mainloop()
 
 
