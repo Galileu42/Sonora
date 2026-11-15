@@ -49,6 +49,75 @@ def open_path(path):
         subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", str(path)])
 
 
+def rounded_outline(width, height, radius):
+    x, y = max(0, width - 1), max(0, height - 1)
+    r = min(radius, x // 2, y // 2)
+    d = r * 0.5523
+    return (r, 0, r, 0, x-r, 0, x-r, 0, x-r+d, 0, x, r-d, x, r,
+            x, r, x, y-r, x, y-r, x, y-r+d, x-r+d, y, x-r, y,
+            x-r, y, r, y, r, y, r-d, y, 0, y-r+d, 0, y-r,
+            0, y-r, 0, r, 0, r, 0, r-d, r-d, 0, r, 0)
+
+
+class RoundedButton(ttk.Frame):
+    """A native focusable button surrounded by a vector border."""
+
+    def __init__(self, parent, *, text, command, style="TButton"):
+        super().__init__(parent, style="Card.TFrame")
+        self.style_engine = ttk.Style(self)
+        self.canvas = tk.Canvas(self, bg=PANEL, highlightthickness=0, bd=0, takefocus=False)
+        self.canvas.place(x=0, y=0, relwidth=1, relheight=1)
+        self.shape = self.canvas.create_polygon(0, 0, 0, 0, 0, 0, smooth="raw")
+        self.inner = ttk.Button(self, text=text, command=command, style=style)
+        self.inner.pack(fill="both", expand=True, padx=6, pady=2)
+        self.variant = style
+        self.canvas.bind("<Configure>", self.redraw)
+        for event in ("<Enter>", "<Leave>", "<FocusIn>", "<FocusOut>", "<ButtonPress-1>", "<ButtonRelease-1>"):
+            self.inner.bind(event, self.defer_redraw, add="+")
+        self.canvas.tk.call("lower", self.canvas)
+
+    def defer_redraw(self, _event):
+        self.after_idle(self.redraw)
+
+    def redraw(self, _event=None):
+        states = self.inner.state()
+        fill = self.style_engine.lookup(self.variant, "background", states)
+        outline = ACCENT if self.inner.instate(("focus", "!disabled")) else fill
+        width, height = self.canvas.winfo_width(), self.canvas.winfo_height()
+        self.canvas.coords(self.shape, *rounded_outline(width, height, 10))
+        self.canvas.itemconfigure(self.shape, fill=fill, outline=outline)
+
+    def configure(self, cnf=None, **kwargs):
+        options = {**(cnf or {}), **kwargs} if cnf is None or isinstance(cnf, dict) else kwargs
+        inner = {key: options.pop(key) for key in ("text", "command", "style") if key in options}
+        if inner:
+            self.inner.configure(**inner)
+            self.variant = inner.get("style", self.variant)
+            self.redraw()
+        if options or not inner:
+            return super().configure(cnf if isinstance(cnf, str) else None, **options)
+
+    config = configure
+
+    def cget(self, key):
+        return self.inner.cget(key) if key in {"text", "command", "style"} else super().cget(key)
+
+    def state(self, statespec=None):
+        result = self.inner.state(statespec)
+        if statespec is not None:
+            self.redraw()
+        return result
+
+    def instate(self, statespec, callback=None, *args):
+        return self.inner.instate(statespec, callback, *args)
+
+    def invoke(self):
+        return self.inner.invoke()
+
+
+Button = ttk.Button if SAFE_START else RoundedButton
+
+
 class Sonora:
     def __init__(self, root):
         self.root = root
@@ -128,14 +197,14 @@ class Sonora:
     def configure_style(self, style):
         self.root.option_add("*TCombobox*Listbox.font", "TkTextFont")
         style.configure(".", background=BG, foreground=INK, font=font_name(11))
-        style.configure("TButton", padding=(13, 8), background=FIELD, borderwidth=0,
-                        focuscolor=ACCENT, focusthickness=1)
+        style.configure("TButton", padding=(7, 6), width=0, background=FIELD, borderwidth=0,
+                        focuscolor=ACCENT, focusthickness=0, relief="flat")
         style.map("TButton", foreground=[("disabled", "#9aa6b9")])
         style.configure("Primary.TButton", background=BLUE, foreground="#ffffff", font=font_name(11, "bold"))
         style.configure("Selected.TButton", background="#2d4b7c", foreground="#edf3ff",
                         font=font_name(11, "bold"))
-        style.configure("Queue.TButton", padding=(12, 5), background=PANEL, foreground=MUTED)
-        style.configure("QueueSelected.TButton", padding=(12, 5), background="#29436c", foreground=ACCENT)
+        style.configure("Queue.TButton", padding=(6, 3), background=PANEL, foreground=MUTED)
+        style.configure("QueueSelected.TButton", padding=(6, 3), background="#29436c", foreground=ACCENT)
         style.configure("TCheckbutton", background=PANEL, indicatorbackground=FIELD, padding=(0, 3))
         style.map("TCheckbutton", indicatorcolor=[("selected", ACCENT)], background=[("active", PANEL)])
         style.configure("TEntry", fieldbackground=FIELD, foreground=INK, insertcolor=INK, padding=7,
@@ -144,6 +213,8 @@ class Sonora:
                         bordercolor=BORDER, lightcolor=FIELD, darkcolor=FIELD)
         style.map("TCombobox", fieldbackground=[("readonly", FIELD)], foreground=[("readonly", INK)],
                   bordercolor=[("focus", ACCENT)])
+        style.configure("Inset.TEntry", bordercolor=FIELD, padding=3)
+        style.configure("Inset.TCombobox", bordercolor=FIELD, padding=3)
         self.root.option_add("*TCombobox*Listbox.background", FIELD)
         self.root.option_add("*TCombobox*Listbox.foreground", INK)
         self.root.option_add("*TCombobox*Listbox.selectBackground", "#304672")
@@ -175,9 +246,9 @@ class Sonora:
         self.brand = tk.PhotoImage(file=ASSETS / "marca.png")
         tk.Label(toolbar, image=self.brand, bg=PANEL).pack(side="left", padx=(0, 11))
         tk.Label(toolbar, text="Sonora", bg=PANEL, fg=INK, font=font_name(20, "bold")).pack(side="left")
-        self.update_button = ttk.Button(toolbar, text="Atualizações", command=self.update_dialog)
+        self.update_button = Button(toolbar, text="Atualizações", command=self.update_dialog)
         self.update_button.pack(side="right")
-        ttk.Button(toolbar, text="Abrir pasta", command=self.open_folder).pack(side="right", padx=8)
+        Button(toolbar, text="Abrir pasta", command=self.open_folder).pack(side="right", padx=8)
         tk.Frame(self.root, bg=BORDER, height=1).pack(fill="x")
 
         status = tk.Frame(self.root, bg=PANEL, padx=17, pady=8)
@@ -204,17 +275,22 @@ class Sonora:
         modes.pack(fill="x", pady=(5, 13))
         self.mode_buttons = {}
         for name in ("Áudio", "Vídeo"):
-            button = ttk.Button(modes, text=name, command=lambda value=name: self.select_mode(value))
+            button = Button(modes, text=name, command=lambda value=name: self.select_mode(value))
             button.pack(side="left", fill="x", expand=True, padx=(0, 4) if name == "Áudio" else (4, 0))
             self.mode_buttons[name] = button
 
         self.label(sidebar, "Formato").pack(anchor="w")
-        self.format_box = ttk.Combobox(sidebar, textvariable=self.format, state="readonly", width=15)
-        self.format_box.pack(fill="x", pady=(5, 12))
+        format_panel = self.rounded_panel(sidebar, FIELD, PANEL, (8, 4), 10)
+        format_panel.pack(fill="x", pady=(5, 12))
+        self.format_box = ttk.Combobox(format_panel, textvariable=self.format, state="readonly", width=15,
+                                       style="Inset.TCombobox")
+        self.format_box.pack(fill="x")
         self.format_box.bind("<<ComboboxSelected>>", self.update_options)
         self.label(sidebar, "Qualidade").pack(anchor="w")
-        self.quality_box = ttk.Combobox(sidebar, state="readonly", width=15)
-        self.quality_box.pack(fill="x", pady=(5, 5))
+        quality_panel = self.rounded_panel(sidebar, FIELD, PANEL, (8, 4), 10)
+        quality_panel.pack(fill="x", pady=(5, 5))
+        self.quality_box = ttk.Combobox(quality_panel, state="readonly", width=15, style="Inset.TCombobox")
+        self.quality_box.pack(fill="x")
         self.quality_box.bind("<<ComboboxSelected>>", self.set_quality)
         note_panel = self.rounded_panel(sidebar, BG, PANEL, (9, 5), 7)
         note_panel.pack(fill="x", pady=(3, 0))
@@ -222,8 +298,10 @@ class Sonora:
                  wraplength=max(175, round(195 * self.scale)), justify="left", anchor="w", height=2).pack(fill="x")
         tk.Frame(sidebar, bg=BORDER, height=1).pack(fill="x", pady=(13, 12))
         self.label(sidebar, "Pasta de destino").pack(anchor="w")
-        ttk.Entry(sidebar, textvariable=self.folder, width=16).pack(fill="x", pady=(5, 7))
-        ttk.Button(sidebar, text="Alterar pasta", command=self.choose_folder).pack(anchor="w")
+        folder_panel = self.rounded_panel(sidebar, FIELD, PANEL, (8, 4), 10)
+        folder_panel.pack(fill="x", pady=(5, 7))
+        ttk.Entry(folder_panel, textvariable=self.folder, width=16, style="Inset.TEntry").pack(fill="x")
+        Button(sidebar, text="Alterar pasta", command=self.choose_folder).pack(anchor="w")
 
         work = tk.Frame(workspace, bg=BG)
         work.pack(side="left", fill="both", expand=True)
@@ -241,9 +319,9 @@ class Sonora:
         self.links.pack(fill="x")
         actions = tk.Frame(links, bg=PANEL)
         actions.pack(fill="x", pady=(7, 0))
-        ttk.Button(actions, text="Adicionar à fila", style="Primary.TButton", command=self.enqueue).pack(side="right")
-        ttk.Button(actions, text="Colar", command=self.paste).pack(side="left")
-        self.inspect_button = ttk.Button(actions, text="Ver formatos", command=self.inspect)
+        Button(actions, text="Adicionar à fila", style="Primary.TButton", command=self.enqueue).pack(side="right")
+        Button(actions, text="Colar", command=self.paste).pack(side="left")
+        self.inspect_button = Button(actions, text="Ver formatos", command=self.inspect)
         self.inspect_button.pack(side="left", padx=(6, 8))
         ttk.Checkbutton(actions, text="Playlist inteira", variable=self.playlist).pack(side="left")
 
@@ -254,14 +332,14 @@ class Sonora:
         self.label(header, "Fila de downloads", heading=True).pack(side="left")
         self.counts = tk.StringVar()
         self.label(header, "", self.counts).pack(side="left", padx=(13, 0))
-        self.start_button = ttk.Button(header, text="Iniciar fila", style="Primary.TButton", command=self.toggle)
+        self.start_button = Button(header, text="Iniciar fila", style="Primary.TButton", command=self.toggle)
         self.start_button.pack(side="right")
 
         filters = tk.Frame(queue, bg=PANEL)
         filters.pack(fill="x", pady=(0, 7))
         self.filter_buttons = {}
         for name in ("Todos", "Pendentes", "Concluídos", "Falhas"):
-            button = ttk.Button(filters, text=name, style="Queue.TButton",
+            button = Button(filters, text=name, style="Queue.TButton",
                                 command=lambda value=name: self.select_queue(value))
             button.pack(side="left", padx=(0, 5))
             self.filter_buttons[name] = button
@@ -275,10 +353,10 @@ class Sonora:
             ("Remover", "Remover", self.remove),
             ("Cancelar atual", "Cancelar atual", self.cancel),
         ):
-            button = ttk.Button(footer, text=caption, command=action)
+            button = Button(footer, text=caption, command=action)
             button.pack(side="left", padx=(0, 5))
             self.action_buttons[key] = button
-        self.clear_button = ttk.Button(footer, text="Limpar concluídos", command=self.clear_done)
+        self.clear_button = Button(footer, text="Limpar concluídos", command=self.clear_done)
         self.clear_button.pack(side="right")
         table = self.rounded_panel(queue, BG, PANEL, (7, 6), 7)
         table.pack(fill="both", expand=True)
@@ -317,14 +395,7 @@ class Sonora:
         corners = canvas.create_polygon(0, 0, 0, 0, 0, 0, fill=fill, outline=BORDER, smooth="raw")
 
         def layout(event):
-            x, y = event.width - 1, event.height - 1
-            r = min(round(radius * self.scale), x // 2, y // 2)
-            d = r * 0.5523
-            canvas.coords(corners,
-                          r, 0, r, 0, x-r, 0, x-r, 0, x-r+d, 0, x, r-d, x, r,
-                          x, r, x, y-r, x, y-r, x, y-r+d, x-r+d, y, x-r, y,
-                          x-r, y, r, y, r, y, r-d, y, 0, y-r+d, 0, y-r,
-                          0, y-r, 0, r, 0, r, 0, r-d, r-d, 0, r, 0)
+            canvas.coords(corners, *rounded_outline(event.width, event.height, round(radius * self.scale)))
 
         canvas.bind("<Configure>", layout)
         # Tk's Canvas.lower acts on drawing items. Lower the canvas widget itself.
@@ -506,9 +577,9 @@ class Sonora:
             self.root.clipboard_append(details)
             copy_button.configure(text="Copiado")
 
-        copy_button = ttk.Button(buttons, text="Copiar detalhes", command=copy)
+        copy_button = Button(buttons, text="Copiar detalhes", command=copy)
         copy_button.pack(side="left")
-        ttk.Button(buttons, text="Fechar", command=dialog.destroy).pack(side="right")
+        Button(buttons, text="Fechar", command=dialog.destroy).pack(side="right")
         dialog.bind("<Escape>", lambda _: dialog.destroy())
 
     def select_queue(self, name):
@@ -709,7 +780,7 @@ class Sonora:
             dialog.destroy()
             self.next_job()
 
-        ttk.Button(footer, text="Adicionar faixas selecionadas", style="Primary.TButton",
+        Button(footer, text="Adicionar faixas selecionadas", style="Primary.TButton",
                    command=add).pack(side="right")
 
     def update_dialog(self):
@@ -731,10 +802,10 @@ class Sonora:
                  wraplength=380, anchor="w", width=49, height=3).pack(fill="x")
         actions = tk.Frame(panel, bg=PANEL)
         actions.pack(fill="x")
-        self.update_check_button = ttk.Button(actions, text="Verificar agora",
+        self.update_check_button = Button(actions, text="Verificar agora",
                                               command=lambda: self.check_updates(manual=True))
         self.update_check_button.pack(side="left")
-        self.update_install_button = ttk.Button(actions, text="Atualizar e reiniciar",
+        self.update_install_button = Button(actions, text="Atualizar e reiniciar",
                                                 command=self.apply_update, style="Primary.TButton")
         self.update_install_button.pack(side="right")
         self.refresh_update_button()
