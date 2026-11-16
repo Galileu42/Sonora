@@ -3,6 +3,7 @@
 from pathlib import Path
 from queue import Empty, Queue
 from threading import Thread
+from urllib.parse import parse_qs, urlsplit
 import faulthandler
 import os
 import re
@@ -141,11 +142,10 @@ class Sonora:
         state = media.load_state()
         settings = state["settings"]
         self.jobs = state["jobs"]
-        self.queue_filter = "Todos"
+        self.queue_filter = "Fila"
         self.queue_rows = {}
         self.jobs_by_id = {}
         self.pending_count = 0
-        self.done_count = 0
         self.folder = tk.StringVar(value=settings.get("folder", DEFAULT_FOLDER))
         self.recent_folders = settings.get("recent_folders", [])
         self.destination_dialog = None
@@ -159,8 +159,8 @@ class Sonora:
         self.mode = tk.StringVar(value=mode)
         self.format = tk.StringVar(value=fmt)
         self.quality = tk.StringVar(value=quality)
-        self.playlist = tk.BooleanVar(value=settings.get("playlist", False))
-        self.status = tk.StringVar(value=state.get("warning", "") or "Pronto para adicionar links.")
+        self.playlist = tk.BooleanVar(value=False)
+        self.status = tk.StringVar(value=state.get("warning", "") or "Pronto para baixar.")
         self.summary = tk.StringVar(value="")
         self.percent = tk.DoubleVar(value=0)
         self.active = None
@@ -168,6 +168,7 @@ class Sonora:
         self.lookup = None
         self.lookup_thread = None
         self.running = False
+        self.immediate_jobs = set()
         self.closing = False
         self.cancelling = False
         self.update_repo = settings.get("update_repo") or updater.DEFAULT_REPO
@@ -259,7 +260,6 @@ class Sonora:
         tk.Label(toolbar, text="Sonora", bg=PANEL, fg=INK, font=font_name(20, "bold")).pack(side="left")
         self.update_button = Button(toolbar, text="Atualizações", command=self.update_dialog)
         self.update_button.pack(side="right")
-        Button(toolbar, text="Abrir pasta", command=self.open_folder).pack(side="right", padx=8)
         tk.Frame(self.root, bg=BORDER, height=1).pack(fill="x")
 
         status = tk.Frame(self.root, bg=PANEL, padx=17, pady=8)
@@ -312,8 +312,11 @@ class Sonora:
         folder_panel = self.rounded_panel(sidebar, FIELD, PANEL, (8, 4), 10)
         folder_panel.pack(fill="x", pady=(5, 7))
         ttk.Entry(folder_panel, textvariable=self.folder, width=16, style="Inset.TEntry").pack(fill="x")
-        Button(sidebar, text="Escolher pasta…", command=self.choose_folder).pack(anchor="w")
-        ttk.Checkbutton(sidebar, text="Perguntar a cada lote", variable=self.ask_destination,
+        folder_actions = tk.Frame(sidebar, bg=PANEL)
+        folder_actions.pack(fill="x")
+        Button(folder_actions, text="Escolher…", command=self.choose_folder).pack(side="left")
+        Button(folder_actions, text="Abrir pasta", command=self.open_folder).pack(side="right")
+        ttk.Checkbutton(sidebar, text="Perguntar onde salvar", variable=self.ask_destination,
                         command=self.persist).pack(anchor="w", pady=(9, 0))
 
         work = tk.Frame(workspace, bg=BG)
@@ -322,8 +325,10 @@ class Sonora:
         links.pack(fill="x", pady=(0, 12))
         header = tk.Frame(links, bg=PANEL)
         header.pack(fill="x", pady=(0, 7))
-        self.label(header, "Adicionar mídia", heading=True).pack(anchor="w")
-        self.label(header, "Cole um link do YouTube, Short ou playlist por linha.").pack(anchor="w", pady=(3, 0))
+        self.label(header, "Baixar do YouTube", heading=True).pack(anchor="w")
+        self.label(header, "Aceita músicas, vídeos, Shorts e playlists. Use um link por linha.").pack(
+            anchor="w", pady=(3, 0)
+        )
         input_frame = self.rounded_panel(links, BG, PANEL, (12, 8), 11)
         input_frame.pack(fill="x")
         self.links = tk.Text(input_frame, height=2, width=1, wrap="word", font="TkTextFont", bg=BG, fg=INK,
@@ -332,26 +337,31 @@ class Sonora:
         self.links.pack(fill="x")
         actions = tk.Frame(links, bg=PANEL)
         actions.pack(fill="x", pady=(7, 0))
-        Button(actions, text="Adicionar à fila", style="Primary.TButton", command=self.enqueue).pack(side="right")
+        self.download_button = Button(actions, text="Baixar agora", style="Primary.TButton", command=self.download_now)
+        self.download_button.pack(side="right")
+        Button(actions, text="Adicionar à fila", command=self.enqueue).pack(side="right", padx=(6, 8))
         Button(actions, text="Colar", command=self.paste).pack(side="left")
         self.inspect_button = Button(actions, text="Ver formatos", command=self.inspect)
-        self.inspect_button.pack(side="left", padx=(6, 8))
-        ttk.Checkbutton(actions, text="Playlist inteira", variable=self.playlist).pack(side="left")
+        self.inspect_button.pack(side="left", padx=(6, 0))
+        ttk.Checkbutton(links, text="Incluir a playlist do vídeo", variable=self.playlist).pack(
+            anchor="w", pady=(5, 0)
+        )
+        self.links.bind("<Control-Return>", self.download_now)
 
         queue = self.card(work)
         queue.pack(fill="both", expand=True)
         header = tk.Frame(queue, bg=PANEL)
         header.pack(fill="x", pady=(0, 9))
-        self.label(header, "Fila de downloads", heading=True).pack(side="left")
+        self.label(header, "Downloads", heading=True).pack(side="left")
         self.counts = tk.StringVar()
         self.label(header, "", self.counts).pack(side="left", padx=(13, 0))
-        self.start_button = Button(header, text="Iniciar fila", style="Primary.TButton", command=self.toggle)
+        self.start_button = Button(header, text="Iniciar fila", command=self.toggle)
         self.start_button.pack(side="right")
 
         filters = tk.Frame(queue, bg=PANEL)
         filters.pack(fill="x", pady=(0, 7))
         self.filter_buttons = {}
-        for name in ("Todos", "Pendentes", "Concluídos", "Falhas"):
+        for name in ("Fila", "Histórico", "Falhas"):
             button = Button(filters, text=name, style="Queue.TButton",
                                 command=lambda value=name: self.select_queue(value))
             button.pack(side="left", padx=(0, 5))
@@ -359,18 +369,17 @@ class Sonora:
 
         footer = tk.Frame(queue, bg=PANEL)
         footer.pack(side="bottom", fill="x", pady=(9, 0))
+        self.footer_view = None
         self.action_buttons = {}
         for key, caption, action in (
             ("Detalhes / abrir", "Abrir / detalhes", self.details),
-            ("Tentar novamente", "Repetir", self.retry),
+            ("Tentar novamente", "Tentar de novo", self.retry),
             ("Remover", "Remover", self.remove),
             ("Cancelar atual", "Cancelar atual", self.cancel),
         ):
             button = Button(footer, text=caption, command=action)
-            button.pack(side="left", padx=(0, 5))
             self.action_buttons[key] = button
-        self.clear_button = Button(footer, text="Limpar concluídos", command=self.clear_done)
-        self.clear_button.pack(side="right")
+        self.clear_button = Button(footer, text="Limpar histórico", command=self.clear_done)
         table = self.rounded_panel(queue, BG, PANEL, (7, 6), 7)
         table.pack(fill="both", expand=True)
         columns = (("title", "Título", 235), ("format", "Formato", 75),
@@ -600,7 +609,12 @@ class Sonora:
             raise ValueError("Cole pelo menos um link do YouTube.")
         return [media.youtube_url(item) for item in items]
 
-    def enqueue(self):
+    def download_now(self, event=None):
+        self.enqueue(start=True)
+        if event is not None:
+            return "break"
+
+    def enqueue(self, *, start=False):
         if self.closing:
             return
         try:
@@ -608,30 +622,44 @@ class Sonora:
             folder = self.batch_destination()
             if folder is None or self.closing:
                 return
-            jobs = [
-                media.Job(url, self.mode.get(), self.format.get(), self.quality.get(), folder,
-                          self.playlist.get() or url.split("?", 1)[0].rstrip("/").endswith("/playlist"))
-                for url in urls
-            ]
+            jobs = []
+            for url in urls:
+                link = urlsplit(url)
+                playlist = link.path.rstrip("/") == "/playlist" or (
+                    self.playlist.get() and bool(parse_qs(link.query).get("list"))
+                )
+                jobs.append(media.Job(url, self.mode.get(), self.format.get(), self.quality.get(), folder, playlist))
         except (OSError, ValueError, RuntimeError) as exc:
             messagebox.showwarning("Verifique os links ou a pasta", str(exc), parent=self.root)
             return
         self.jobs.extend(jobs)
-        self.queue_filter = "Todos"
+        if start:
+            self.immediate_jobs.update(job.id for job in jobs)
+        self.queue_filter = "Fila"
         self.links.delete("1.0", "end")
+        self.playlist.set(False)
+        if start and self.active:
+            self.status.set("Seu download começa assim que o atual terminar.")
+        elif not start and not self.active:
+            self.status.set("Adicionado à fila. Clique em Iniciar fila para baixar.")
         self.changed()
-        self.status.set(f"{len(jobs)} link(s) adicionado(s).")
         self.next_job()
 
     def selected(self):
-        return [self.jobs_by_id[item] for item in self.tree.selection() if item in self.jobs_by_id]
+        return [
+            self.jobs_by_id[item] for item in self.tree.selection()
+            if item in self.jobs_by_id and self.tree.index(item) != -1
+        ]
 
     def clear_done(self):
-        self.jobs[:] = [job for job in self.jobs if job.status != media.DONE]
-        self.changed()
+        if messagebox.askyesno("Limpar histórico", "Remover os registros dos downloads concluídos? "
+                               "Os arquivos continuarão na pasta onde foram salvos.", parent=self.root):
+            self.jobs[:] = [job for job in self.jobs if job.status != media.DONE]
+            self.changed()
 
     def remove(self):
         ids = {job.id for job in self.selected() if job.status != media.ACTIVE}
+        self.immediate_jobs.difference_update(ids)
         self.jobs[:] = [job for job in self.jobs if job.id not in ids]
         self.changed()
 
@@ -639,6 +667,8 @@ class Sonora:
         for job in self.selected():
             if job.status in {media.FAILED, media.STOPPED}:
                 job.status, job.error = media.PENDING, ""
+        self.queue_filter = "Fila"
+        self.status.set("Item devolvido à fila.")
         self.changed()
         self.next_job()
 
@@ -692,12 +722,14 @@ class Sonora:
 
     def refresh(self):
         statuses = {
-            "Pendentes": {media.PENDING, media.ACTIVE},
-            "Concluídos": {media.DONE},
+            "Fila": {media.PENDING, media.ACTIVE},
+            "Histórico": {media.DONE},
             "Falhas": {media.FAILED, media.STOPPED},
-        }.get(self.queue_filter)
+        }[self.queue_filter]
         self.jobs_by_id = {job.id: job for job in self.jobs}
-        visible = [job for job in self.jobs if statuses is None or job.status in statuses]
+        visible = [job for job in self.jobs if job.status in statuses]
+        if self.queue_filter == "Fila":
+            visible.sort(key=lambda job: (job.status != media.ACTIVE, job.id not in self.immediate_jobs))
         children = tuple(job.id for job in visible)
         removed = self.queue_rows.keys() - self.jobs_by_id.keys()
         if removed:
@@ -722,15 +754,39 @@ class Sonora:
             self.queue_rows[job.id] = (values, tags)
         if self.tree.get_children() != children:
             self.tree.set_children("", *children)
+            hidden = set(self.tree.selection()) - set(children)
+            if hidden:
+                self.tree.selection_remove(*hidden)
         if visible:
             self.empty.place_forget()
         else:
-            self.empty_title.set("A fila está vazia" if self.queue_filter == "Todos" else "Nenhum item nesta lista")
-            self.empty_hint.set("Cole um link do YouTube para começar." if self.queue_filter == "Todos" else "")
+            title, hint = {
+                "Fila": ("A fila está vazia", "Cole um link e clique em Baixar agora."),
+                "Histórico": ("Nenhum download concluído", "Os arquivos baixados aparecem aqui."),
+                "Falhas": ("Nenhuma falha ou cancelamento", ""),
+            }[self.queue_filter]
+            self.empty_title.set(title)
+            self.empty_hint.set(hint)
             self.empty.place(relx=0.5, rely=0.56, anchor="center")
         self.pending_count = sum(job.status == media.PENDING for job in self.jobs)
-        self.done_count = sum(job.status == media.DONE for job in self.jobs)
-        self.counts.set(f"{self.pending_count} pend.  ·  {self.done_count} prontos")
+        self.counts.set(f"{self.pending_count} na fila" if self.pending_count else "")
+        if self.footer_view != self.queue_filter:
+            for button in self.action_buttons.values():
+                button.pack_forget()
+            self.clear_button.pack_forget()
+            captions = {
+                "Fila": ("Detalhes", "Remover", "Cancelar atual"),
+                "Histórico": ("Abrir arquivo",),
+                "Falhas": ("Ver detalhes", "Tentar novamente", "Remover"),
+            }[self.queue_filter]
+            self.action_buttons["Detalhes / abrir"].configure(text=captions[0])
+            self.action_buttons["Detalhes / abrir"].pack(side="left", padx=(0, 5))
+            for action in captions[1:]:
+                self.action_buttons[action].pack(side="left", padx=(0, 5))
+            if self.queue_filter == "Histórico":
+                self.clear_button.pack(side="right")
+            self.footer_view = self.queue_filter
+        self.clear_button.state(["!disabled" if visible else "disabled"])
         self.update_controls()
 
     def update_controls(self):
@@ -742,15 +798,17 @@ class Sonora:
         self.action_buttons["Remover"].state(["!disabled" if can_remove else "disabled"])
         can_cancel = self.active and not self.cancelling
         self.action_buttons["Cancelar atual"].state(["!disabled" if can_cancel else "disabled"])
-        can_start = self.running or self.pending_count
-        self.start_button.state(["!disabled" if can_start else "disabled"])
-        self.clear_button.state(["!disabled" if self.done_count else "disabled"])
+        can_pause = self.can_pause_queue()
+        caption = "Pausar fila" if can_pause else "Iniciar fila"
+        if self.start_button.cget("text") != caption:
+            self.start_button.configure(text=caption)
+        self.start_button.state(["!disabled" if (can_pause or self.pending_count) and not self.closing else "disabled"])
 
     def persist(self):
         try:
             media.save_state({
                 "folder": self.folder.get(), "mode": self.mode.get(), "format": self.format.get(),
-                "quality": self.quality.get(), "playlist": self.playlist.get(),
+                "quality": self.quality.get(),
                 "update_repo": self.update_repo,
                 "ask_destination": self.ask_destination.get(),
                 "recent_folders": self.recent_folders,
@@ -763,15 +821,24 @@ class Sonora:
         self.refresh()
         self.persist()
 
+    def can_pause_queue(self):
+        if self.running or len(self.immediate_jobs) > 1:
+            return True
+        if not self.immediate_jobs:
+            return False
+        return not self.active or self.active[0].playlist or self.active[0].id not in self.immediate_jobs
+
     def toggle(self):
         if self.closing:
             return
-        self.running = not self.running
-        self.start_button.configure(text="Pausar fila" if self.running else "Iniciar fila")
-        if self.running:
-            self.next_job()
-        else:
-            self.status.set("Fila pausada. O item atual pode terminar.")
+        if self.can_pause_queue():
+            self.running = False
+            self.immediate_jobs.clear()
+            self.status.set("Fila pausada. O download atual vai terminar.")
+            self.refresh()
+            return
+        self.running = True
+        self.next_job()
         self.update_controls()
 
     def cancel(self):
@@ -782,15 +849,14 @@ class Sonora:
             Thread(target=self.active[1].stop, daemon=True).start()
 
     def next_job(self):
-        if not self.running or self.active or self.closing:
+        if self.active or self.closing:
             return
-        job = next((job for job in self.jobs if job.status == media.PENDING), None)
+        job = next((job for job in self.jobs if job.status == media.PENDING and job.id in self.immediate_jobs), None)
+        if not job and self.running:
+            job = next((job for job in self.jobs if job.status == media.PENDING), None)
         if not job:
             self.running = False
-            self.start_button.configure(text="Iniciar fila")
             self.update_controls()
-            if not self.jobs:
-                self.status.set("Fila sem itens pendentes.")
             return
         runner = media.Process()
         self.active = (job, runner)
@@ -883,7 +949,7 @@ class Sonora:
                 identifier, kind, *_ = tree.item(item, "values")
                 self.jobs.append(media.Job(url, "Faixa nativa", kind, str(identifier), folder,
                                            title=document.get("title") or ""))
-            self.queue_filter = "Todos"
+            self.queue_filter = "Fila"
             self.changed()
             self.status.set("Faixas adicionadas à fila.")
             dialog.destroy()
@@ -1034,12 +1100,17 @@ class Sonora:
                 continue
             self.active = None
             self.cancelling = False
+            was_immediate = job.id in self.immediate_jobs
+            self.immediate_jobs.discard(job.id)
             if event == "expanded":
                 index = self.jobs.index(job)
-                self.jobs[index:index + 1] = [
+                tracks = [
                     media.Job(url, job.mode, job.format, job.quality, job.folder, title=title)
                     for url, title in data
                 ]
+                self.jobs[index:index + 1] = tracks
+                if was_immediate:
+                    self.immediate_jobs.update(track.id for track in tracks)
                 self.status.set(f"{len(data)} vídeo(s) na playlist.")
             elif event == "done":
                 job.title, job.result = data
@@ -1049,7 +1120,7 @@ class Sonora:
                 self.status.set(f"Salvo · {filename[:95] + '…' if len(filename) > 95 else filename}")
             elif event == "failed":
                 job.status, job.error = media.FAILED, data
-                self.status.set("Download falhou. Abra os detalhes do item para ver o erro.")
+                self.status.set("Download falhou. Abra a aba Falhas para ver os detalhes.")
             elif event == "cancelled":
                 job.status = media.PENDING if self.closing else media.STOPPED
                 self.status.set("Download interrompido.")
@@ -1091,6 +1162,7 @@ class Sonora:
         self.closing = True
         signal_startup_ready(ready=False)
         self.running = False
+        self.immediate_jobs.clear()
         self.persist()
         self.cancel()
         if self.update_thread and not self.active:

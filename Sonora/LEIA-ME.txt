@@ -55,7 +55,7 @@ Se mover a pasta do aplicativo, execute Criar_Atalhos.cmd de novo.
 COMO USAR
 Cole links de vídeos, Shorts, YouTube Music ou playlists. Escolha o
 formato, a qualidade e a pasta. Use Escolher pasta para definir o destino
-padrão ou marque Perguntar a cada lote para escolher ao adicionar à fila.
+padrão ou marque Perguntar onde salvar para escolher a pasta a cada lote.
 Na janela de destino, acesse Downloads, a pasta Sonora ou as seis
 pastas recentes. Use Procurar para navegar no Windows ou cole um caminho.
 Ao escolher por lote, marque Salvar também como pasta padrão para reutilizá-la.
@@ -63,10 +63,19 @@ Cada item mantém o destino escolhido quando foi adicionado.
 O áudio começa em Original e Máxima disponível para copiar a melhor
 faixa oferecida pela fonte sem recodificação. Se precisar de MP3 ou
 outro formato, selecione-o no painel Saída.
-Clique em Adicionar à fila e Iniciar fila.
-Um link direto de playlist é expandido automaticamente. Marque
-“Incluir todos os vídeos da playlist” para expandir também um link
-de vídeo que pertença a uma playlist. Cada vídeo vira um item próprio.
+Use Baixar agora para começar. Se houver um download em andamento,
+os novos links são processados assim que ele acabar. Use Adicionar
+à fila para deixar links preparados para depois e Iniciar fila para
+processá-los. Pausar fila deixa o download atual terminar.
+
+Um link direto de playlist inclui todos os vídeos automaticamente.
+Para baixar a playlist a partir do link de um vídeo, marque
+Incluir a playlist do vídeo. A opção é desmarcada após cada envio.
+Cada vídeo vira um item próprio e mantém a pasta escolhida.
+
+A aba Fila mostra o item atual e os pendentes. Os concluídos vão para
+o Histórico, onde você pode abrir os arquivos. A aba Falhas reúne
+downloads com erro ou cancelados e permite tentar novamente.
 
 Use “Ver formatos e tamanhos” para analisar o primeiro link de vídeo.
 A tabela mostra as faixas disponíveis, resolução, FPS, codec e tamanho
@@ -90,7 +99,7 @@ A fila é salva no computador. “Pausar fila” deixa o item atual terminar
 e impede que o próximo comece. “Cancelar atual” interrompe o item; use
 “Tentar novamente” para recolocá-lo na fila. Duplo clique abre o arquivo
 pronto ou mostra o erro. Os detalhes técnicos podem ser copiados.
-Ctrl+Enter adiciona os links à fila. Downloads iguais recebem sufixos numéricos.
+Ctrl+Enter equivale a Baixar agora. Downloads iguais recebem sufixos numéricos.
 
 Se a consulta ou os downloads começarem a falhar, feche o aplicativo e
 execute Atualizar_Motor.cmd para atualizar o yt-dlp e seus componentes.
